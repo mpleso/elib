@@ -1,0 +1,39 @@
+{{/* -*- mode: Go -*- */}}
+
+package {{.Package}}
+
+{{if ne .Package "elib"}}
+import (
+	. "elib"
+)
+{{end}}
+
+{{define "T"}}{{.}}Vec{{end}}
+
+type {{template "T" .ID}} []{{.Type}}
+
+func (p * {{template "T" .ID}}) Resize(n uint) {
+	c := Index(cap(*p))
+	l := Index(len(*p)) + Index(n)
+	if l > c {
+		c = NextResizeCap(l)
+		q := make([]{{.Type}}, l, c)
+		copy(q, *p)
+		*p = q
+	}
+	*p = (*p)[:l]
+}
+
+func (p * {{template "T" .ID}}) Validate(i uint) {
+	c := Index(cap(*p))
+	l := Index(i) + 1
+	if l > c {
+		c = NextResizeCap(l)
+		q := make([]{{.Type}}, l, c)
+		copy(q, *p)
+		*p = q
+	}
+	if l > Index(len(*p)) {
+		*p = (*p)[:l]
+	}
+}

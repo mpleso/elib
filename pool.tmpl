@@ -1,0 +1,55 @@
+{{/* -*- mode: Go -*- */}}
+
+package {{.Package}}
+
+{{if ne .Package "elib"}}
+import (
+	. "elib"
+)
+{{end}}
+
+{{define "T"}}{{.}}Pool{{end}}
+
+type {{template "T" .ID}} struct {
+	pool
+	{{.Data}} {{.Type}}
+}
+
+func (p * {{template "T" .ID}}) GetIndex() (i uint) {
+	l := uint(len(p.{{.Data}}))
+	i = p.getIndex(l)
+	if i >= l {
+		p.Validate(i)
+	}
+	return i
+}
+
+func (p * {{template "T" .ID}}) PutIndex(i uint) (ok bool) {
+	return p.putIndex(i)
+}
+
+func (p * {{template "T" .ID}}) Resize(n int) {
+	c := Index(cap(p.{{.Data}}))
+	l := Index(len(p.{{.Data}}) + n)
+	if l > c {
+		c = NextResizeCap(l)
+		q := make({{.Type}}, l, c)
+		copy(q, p.{{.Data}})
+		p.{{.Data}} = q
+	}
+	p.{{.Data}} = p.{{.Data}}[:l]
+}
+
+func (p * {{template "T" .ID}}) Validate(i uint) {
+	c := Index(cap(p.{{.Data}}))
+	l := Index(i) + 1
+	if l > c {
+		c = NextResizeCap(l)
+		q := make({{.Type}}, l, c)
+		copy(q, p.{{.Data}})
+		p.{{.Data}} = q
+	}
+	if l > Index(len(p.{{.Data}})) {
+		p.{{.Data}} = p.{{.Data}}[:l]
+	}
+}
