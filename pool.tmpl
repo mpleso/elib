@@ -11,13 +11,13 @@ import (
 {{define "T"}}{{.}}Pool{{end}}
 
 type {{template "T" .ID}} struct {
-	pool
+	Pool Pool
 	{{.Data}} {{.Type}}
 }
 
 func (p * {{template "T" .ID}}) GetIndex() (i uint) {
 	l := uint(len(p.{{.Data}}))
-	i = p.getIndex(l)
+	i = p.Pool.GetIndex(l)
 	if i >= l {
 		p.Validate(i)
 	}
@@ -25,7 +25,7 @@ func (p * {{template "T" .ID}}) GetIndex() (i uint) {
 }
 
 func (p * {{template "T" .ID}}) PutIndex(i uint) (ok bool) {
-	return p.putIndex(i)
+	return p.Pool.PutIndex(i)
 }
 
 func (p * {{template "T" .ID}}) Resize(n int) {

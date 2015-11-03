@@ -4,13 +4,13 @@
 package elib
 
 type BitmapPool struct {
-	pool
+	Pool    Pool
 	bitmaps []BitmapVec
 }
 
 func (p *BitmapPool) GetIndex() (i uint) {
 	l := uint(len(p.bitmaps))
-	i = p.getIndex(l)
+	i = p.Pool.GetIndex(l)
 	if i >= l {
 		p.Validate(i)
 	}
@@ -18,7 +18,7 @@ func (p *BitmapPool) GetIndex() (i uint) {
 }
 
 func (p *BitmapPool) PutIndex(i uint) (ok bool) {
-	return p.putIndex(i)
+	return p.Pool.PutIndex(i)
 }
 
 func (p *BitmapPool) Resize(n int) {

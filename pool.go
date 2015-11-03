@@ -1,6 +1,6 @@
 package elib
 
-type pool struct {
+type Pool struct {
 	// Vector of free indices
 	freeIndices []uint32 // Uint32Vec
 	// Bitmap of free indices
@@ -8,7 +8,7 @@ type pool struct {
 }
 
 // Get first free pool index if available.
-func (p *pool) getIndex(max uint) (i uint) {
+func (p *Pool) GetIndex(max uint) (i uint) {
 	i = max
 	l := uint(len(p.freeIndices))
 	if l != 0 {
@@ -20,7 +20,7 @@ func (p *pool) getIndex(max uint) (i uint) {
 }
 
 // Put (free) given pool index.
-func (p *pool) putIndex(i uint) (ok bool) {
+func (p *Pool) PutIndex(i uint) (ok bool) {
 	if ok = !p.freeBitmap.Get(i); ok {
 		p.freeIndices = append(p.freeIndices, uint32(i))
 		p.freeBitmap = p.freeBitmap.Orx(i)

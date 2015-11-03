@@ -4,13 +4,13 @@
 package elib
 
 type StringPool struct {
-	pool
+	Pool    Pool
 	Strings StringVec
 }
 
 func (p *StringPool) GetIndex() (i uint) {
 	l := uint(len(p.Strings))
-	i = p.getIndex(l)
+	i = p.Pool.GetIndex(l)
 	if i >= l {
 		p.Validate(i)
 	}
@@ -18,7 +18,7 @@ func (p *StringPool) GetIndex() (i uint) {
 }
 
 func (p *StringPool) PutIndex(i uint) (ok bool) {
-	return p.putIndex(i)
+	return p.Pool.PutIndex(i)
 }
 
 func (p *StringPool) Resize(n int) {
