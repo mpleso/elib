@@ -82,8 +82,8 @@ func event(f Interface, l *File) (e epollEvent) {
 
 // Add adds a file to the file poller, certainly for read and possibly for write depending on f.WriteReady()
 func (m *Mux) Add(f Interface) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.poolLock.Lock()
+	defer m.poolLock.Unlock()
 	m.validate()
 	l := f.GetFile()
 	fd := l.Fd
@@ -103,8 +103,8 @@ func (m *Mux) Add(f Interface) {
 
 // Del removes the file (descriptor) from polling and frees file pool entry.
 func (m *Mux) Del(f Interface) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.poolLock.Lock()
+	defer m.poolLock.Unlock()
 	l := f.GetFile()
 	if err := epoll_ctl(m.fd(), opDel, l.Fd, nil); err != nil {
 		panic(fmt.Errorf("epoll_ctl: del %s", err))
@@ -118,8 +118,8 @@ func (m *Mux) Del(f Interface) {
 
 // Update is needed when f.WriteReady() changes value.
 func (m *Mux) Update(f Interface) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.poolLock.Lock()
+	defer m.poolLock.Unlock()
 	l := f.GetFile()
 	e := event(f, l)
 	if err := epoll_ctl(m.fd(), opMod, l.Fd, &e); err != nil {
@@ -137,9 +137,9 @@ func (m *Mux) Wait(secs float64) {
 		}
 		for i := 0; i < n; i++ {
 			fi := es[i].data[0]
-			m.lock.Lock()
+			m.poolLock.Lock()
 			f := m.pool.files[fi]
-			m.lock.Unlock()
+			m.poolLock.Unlock()
 			em := es[i].mask
 			if em&eventWrite != 0 {
 				err := f.WriteReady()
