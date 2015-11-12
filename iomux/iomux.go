@@ -1,9 +1,14 @@
 package iomux
 
+import (
+	"sync"
+)
+
 type Mux struct {
 	// Poll/epoll file descriptor less 1.
-	_fd  int
-	pool filePool
+	_fd      int
+	poolLock sync.Mutex // protects following
+	pool     filePool
 }
 
 // File descriptor as returned by epoll_create(2).  Subtract one so zero value is invalid.
@@ -21,13 +26,14 @@ type File struct {
 }
 
 func (f *File) GetFile() *File { return f }
+func (f *File) Index() uint    { return f.poolIndex }
 
 type Interface interface {
 	GetFile() *File
 	// OS indicates that file is ready to read and/or write.
-	ReadReady(i *Mux) error
-	WriteReady(i *Mux) error
-	ErrorReady(i *Mux) error
+	ReadReady() error
+	WriteReady() error
+	ErrorReady() error
 	// User has data available to write to file.
 	WriteAvailable() bool
 }
