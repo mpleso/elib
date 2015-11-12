@@ -36,7 +36,10 @@ func epoll_ctl(epfd int, op epollCtlOp, fd int, event *epollEvent) (err error) {
 
 func epoll_pwait(epfd int, events []epollEvent, secs float64) (n int, err error) {
 	var zero [8]byte // Zero signal mask so any signal will stop wait.
-	msec := int(1e-3 * secs)
+	msec := -1
+	if secs > 0 {
+		msec = int(1e-3 * secs)
+	}
 	r0, _, e := syscall.Syscall6(syscall.SYS_EPOLL_PWAIT, uintptr(epfd), uintptr(unsafe.Pointer(&events[0])), uintptr(len(events)), uintptr(msec),
 		uintptr(unsafe.Pointer(&zero[0])), uintptr(unsafe.Sizeof(zero)))
 	n = int(r0)
@@ -79,6 +82,8 @@ func event(f Interface, l *File) (e epollEvent) {
 
 // Add adds a file to the file poller, certainly for read and possibly for write depending on f.WriteReady()
 func (m *Mux) Add(f Interface) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	m.validate()
 	l := f.GetFile()
 	fd := l.Fd
@@ -92,15 +97,17 @@ func (m *Mux) Add(f Interface) {
 
 	e := event(f, l)
 	if err := epoll_ctl(m.fd(), opAdd, fd, &e); err != nil {
-		panic(fmt.Errorf("epoll_ctl: %s", err))
+		panic(fmt.Errorf("epoll_ctl: add %s", err))
 	}
 }
 
 // Del removes the file (descriptor) from polling and frees file pool entry.
 func (m *Mux) Del(f Interface) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	l := f.GetFile()
 	if err := epoll_ctl(m.fd(), opDel, l.Fd, nil); err != nil {
-		panic(fmt.Errorf("epoll_ctl: %s", err))
+		panic(fmt.Errorf("epoll_ctl: del %s", err))
 	}
 	fi := l.poolIndex
 	// Poison index.
@@ -111,10 +118,12 @@ func (m *Mux) Del(f Interface) {
 
 // Update is needed when f.WriteReady() changes value.
 func (m *Mux) Update(f Interface) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	l := f.GetFile()
 	e := event(f, l)
 	if err := epoll_ctl(m.fd(), opMod, l.Fd, &e); err != nil {
-		panic(fmt.Errorf("epoll_ctl: %s", err))
+		panic(fmt.Errorf("epoll_ctl: mod %s", err))
 	}
 }
 
@@ -127,22 +136,25 @@ func (m *Mux) Wait(secs float64) {
 			panic(fmt.Errorf("epoll_pwait %s", err))
 		}
 		for i := 0; i < n; i++ {
-			f := m.pool.files[es[i].data[0]]
+			fi := es[i].data[0]
+			m.lock.Lock()
+			f := m.pool.files[fi]
+			m.lock.Unlock()
 			em := es[i].mask
 			if em&eventWrite != 0 {
-				err := f.WriteReady(m)
+				err := f.WriteReady()
 				if err != nil {
 					panic(err)
 				}
 			}
 			if em&eventRead != 0 {
-				err := f.ReadReady(m)
+				err := f.ReadReady()
 				if err != nil {
 					panic(err)
 				}
 			}
 			if em&eventError != 0 {
-				f.ErrorReady(m)
+				f.ErrorReady()
 			}
 		}
 	}
