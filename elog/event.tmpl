@@ -1,0 +1,47 @@
+{{/* -*- mode: Go -*- */}}
+
+package {{.Package}}
+
+import (
+{{if ne .Package "elog"}}
+	. "github.com/platinasystems/elib/elog"
+{{end}}
+	"fmt"
+	"unsafe"
+)
+
+var {{.Type}}Type = &EventType{}
+
+func init() {
+	{{.Type}}Type.Stringer = func(e *Event) string {
+		x := (*{{.Type}})(unsafe.Pointer(&e.Data[0]))
+		return x.String()
+	}
+}
+
+func {{.Type}}New() (x *{{.Type}}) {
+	e := Add({{.Type}}Type)
+	if unsafe.Sizeof(*x) > unsafe.Sizeof(e.Data) {
+		panic(fmt.Sprintf("type too large: {{.Type}} %d bytes", unsafe.Sizeof(*x)))
+	}
+	x = (*{{.Type}})(unsafe.Pointer(&e.Data[0]))
+	return
+}
+	
+func (x {{.Type}}) Log() {
+	p := {{.Type}}New()
+	*p = x
+}
+
+func (x *{{.Type}}) Event() (e *Event) {
+	e = (*Event)(unsafe.Pointer(uintptr(unsafe.Pointer(x)) - unsafe.Offsetof(e.Data)))
+	return
+}
+
+func (x *{{.Type}}) LogEventString(l *Log) string {
+	e := x.Event()
+	return fmt.Sprintf("%s: %s", e.EventString(l), x)
+}
+
+func (x *{{.Type}}) EventString() string { return x.LogEventString(DefaultLog) }
+
