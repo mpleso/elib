@@ -48,7 +48,7 @@ func (e *Event) encode(b0 elib.ByteVec, eType uint16, t0 Time, i0 int) (b elib.B
 	b, i = b0, i0
 	b.Validate(uint(i + 1<<log2EventBytes))
 	// Encode time differences for shorter encodings.
-	t = e.Time
+	t = e.timestamp
 	i += binary.PutUvarint(b[i:], uint64(t-t0))
 	i += binary.PutUvarint(b[i:], uint64(eType))
 	i += binary.PutUvarint(b[i:], uint64(e.Track))
@@ -73,7 +73,7 @@ func (e *Event) decode(b elib.ByteVec, typeMap elib.Uint16Vec, t0 Time, i0 int) 
 		goto short
 	}
 	t += Time(x)
-	e.Time = t
+	e.timestamp = t
 	i += n
 
 	if x, n = binary.Uvarint(b[i:]); n <= 0 {
@@ -109,8 +109,9 @@ func (l *Log) MarshalBinary() ([]byte, error) {
 	bo.PutUint64(b[i:], math.Float64bits(l.timeUnit()))
 	i += 8
 
-	b.Validate(uint(i + binary.MaxVarintLen64))
+	b.Validate(uint(i + 2*binary.MaxVarintLen64))
 	i += binary.PutUvarint(b[i:], uint64(l.zeroTime))
+	i += binary.PutUvarint(b[i:], uint64(l.unixZeroTime))
 
 	b.Validate(uint(i + binary.MaxVarintLen64))
 	i += binary.PutUvarint(b[i:], uint64(l.Len()))
@@ -162,6 +163,13 @@ func (l *Log) UnmarshalBinary(b []byte) (err error) {
 
 	if x, n := binary.Uvarint(b[i:]); n > 0 {
 		l.zeroTime = Time(x)
+		i += n
+	} else {
+		return errUnderflow
+	}
+
+	if x, n := binary.Uvarint(b[i:]); n > 0 {
+		l.unixZeroTime = int64(x)
 		i += n
 	} else {
 		return errUnderflow

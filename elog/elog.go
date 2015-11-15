@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -21,7 +22,7 @@ const (
 type Time uint64
 
 type Event struct {
-	Time
+	timestamp Time
 
 	Type, Track uint16
 
@@ -57,6 +58,8 @@ type Log struct {
 
 	// Timestamp when log was created.
 	zeroTime Time
+
+	unixZeroTime int64
 
 	// Timer tick in seconds.
 	timeUnitSecs float64
@@ -94,7 +97,7 @@ func (l *Log) Add(t *EventType) *Event {
 	t.registerOnce.Do(func() { addType(t) })
 	i := atomic.AddUint64(&l.index, 1)
 	e := &l.events[int(i-1)&(1<<log2NEvents-1)]
-	e.Time = Now()
+	e.timestamp = Now()
 	e.Type = uint16(t.index)
 	return e
 }
@@ -151,6 +154,7 @@ func Enable(v bool)           { DefaultLog.Enable(v) }
 func New() *Log {
 	l := &Log{}
 	l.zeroTime = Now()
+	l.unixZeroTime = time.Now().UnixNano()
 	return l
 }
 
@@ -166,9 +170,17 @@ func (l *Log) timeUnit() (u float64) {
 	return
 }
 
+// Time event happened in seconds relative to start of log.
+func (e *Event) Time(l *Log) float64 { return float64(e.timestamp-l.zeroTime) * l.timeUnit() }
+
+// Absolute time in nanosecs from Unix epoch.
+func (e *Event) TimeUnixNano(l *Log) int64 { return l.unixZeroTime + int64(1e9*e.Time(l)) }
+
 func (e *Event) EventString(l *Log) (s string) {
-	t := eventTypes[e.Type]
-	s = fmt.Sprintf("%16.9f %s", float64(e.Time-l.zeroTime)*l.timeUnit(), t.Stringer(e))
+	t := e.getType()
+	s = fmt.Sprintf("%s: %s",
+		time.Unix(0, e.TimeUnixNano(l)).Format("2006-01-02 15:04:05.000000000"),
+		t.Stringer(e))
 	return
 }
 
