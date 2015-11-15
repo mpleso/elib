@@ -10,12 +10,38 @@ import (
 	"unsafe"
 )
 
-var {{.Type}}Type = &EventType{}
+var {{.Type}}Type = &EventType{
+	Name: "{{.Package}}.{{.Type}}",
+}
 
 func init() {
-	{{.Type}}Type.Stringer = func(e *Event) string {
-		x := (*{{.Type}})(unsafe.Pointer(&e.Data[0]))
-		return x.String()
+	t := {{.Type}}Type
+	t.Stringer = stringer_{{.Type}}
+	t.Encoder = encoder_{{.Type}}
+	t.Decoder = decoder_{{.Type}}
+	RegisterType({{.Type}}Type)
+}
+
+func stringer_{{.Type}}(e *Event) string {
+	x := (*{{.Type}})(unsafe.Pointer(&e.Data[0]))
+	return x.String()
+}
+
+func encoder_{{.Type}}(b []byte, e *Event) int {
+	x := (interface{})((*{{.Type}})(unsafe.Pointer(&e.Data[0])))
+	if y, ok := x.(EventDataEncoder); ok {
+		return y.Encode(b)
+	} else {
+		return copy(b, e.Data[:])
+	}
+}
+
+func decoder_{{.Type}}(b []byte, e *Event) int {
+	x := (interface{})((*{{.Type}})(unsafe.Pointer(&e.Data[0])))
+	if y, ok := x.(EventDataDecoder); ok {
+		return y.Decode(b)
+	} else {
+		return copy(e.Data[:], b)
 	}
 }
 
@@ -44,4 +70,3 @@ func (x *{{.Type}}) LogEventString(l *Log) string {
 }
 
 func (x *{{.Type}}) EventString() string { return x.LogEventString(DefaultLog) }
-

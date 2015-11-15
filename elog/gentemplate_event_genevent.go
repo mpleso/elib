@@ -8,12 +8,38 @@ import (
 	"unsafe"
 )
 
-var GenEventType = &EventType{}
+var GenEventType = &EventType{
+	Name: "elog.GenEvent",
+}
 
 func init() {
-	GenEventType.Stringer = func(e *Event) string {
-		x := (*GenEvent)(unsafe.Pointer(&e.Data[0]))
-		return x.String()
+	t := GenEventType
+	t.Stringer = stringer_GenEvent
+	t.Encoder = encoder_GenEvent
+	t.Decoder = decoder_GenEvent
+	RegisterType(GenEventType)
+}
+
+func stringer_GenEvent(e *Event) string {
+	x := (*GenEvent)(unsafe.Pointer(&e.Data[0]))
+	return x.String()
+}
+
+func encoder_GenEvent(b []byte, e *Event) int {
+	x := (interface{})((*GenEvent)(unsafe.Pointer(&e.Data[0])))
+	if y, ok := x.(EventDataEncoder); ok {
+		return y.Encode(b)
+	} else {
+		return copy(b, e.Data[:])
+	}
+}
+
+func decoder_GenEvent(b []byte, e *Event) int {
+	x := (interface{})((*GenEvent)(unsafe.Pointer(&e.Data[0])))
+	if y, ok := x.(EventDataDecoder); ok {
+		return y.Decode(b)
+	} else {
+		return copy(e.Data[:], b)
 	}
 }
 

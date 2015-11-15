@@ -5,13 +5,10 @@ import (
 	"github.com/platinasystems/elib"
 
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 const (
@@ -20,6 +17,7 @@ const (
 	EventDataBytes = 1<<log2EventBytes - (8 + 2*2)
 )
 
+// Event time stamp (CPU clock cycles when gathered)
 type Time uint64
 
 type Event struct {
@@ -35,25 +33,36 @@ type Track struct {
 }
 
 type EventType struct {
-	Stringer     func(e *Event) string
+	Name     string
+	Stringer func(e *Event) string
+	Decoder  func(b []byte, e *Event) int
+	Encoder  func(b []byte, e *Event) int
+
 	registerOnce sync.Once
-	index        int
+	index        uint32
 	lock         sync.Mutex // protects following
-	tags         []string
-	indexForTag  map[string]int
+	Tags         []string
+	IndexForTag  map[string]int
 }
 
 type Log struct {
-	types  []*EventType
-	Events [1 << log2NEvents]Event
-	// Dummy event to use when logging is disabled.
-	disabledEvent Event
-	index         uint64
+	// Circular buffer of events.
+	events [1 << log2NEvents]Event
+
+	// Index into circular buffer.
+	index uint64
+
 	// Disable logging when index reaches limit.
 	disableIndex uint64
-	cpuTime
+
 	// Timestamp when log was created.
-	ZeroTime Time
+	zeroTime Time
+
+	// Timer tick in seconds.
+	timeUnitSecs float64
+
+	// Dummy event to use when logging is disabled.
+	disabledEvent Event
 }
 
 func (l *Log) Enable(v bool) {
@@ -82,40 +91,84 @@ func (l *Log) Add(t *EventType) *Event {
 	if !l.Enabled() {
 		return &l.disabledEvent
 	}
-	t.registerOnce.Do(func() { l.RegisterType(t) })
+	t.registerOnce.Do(func() { addType(t) })
 	i := atomic.AddUint64(&l.index, 1)
-	e := &l.Events[int(i-1)&(1<<log2NEvents-1)]
+	e := &l.events[int(i-1)&(1<<log2NEvents-1)]
 	e.Time = Now()
 	e.Type = uint16(t.index)
 	return e
 }
 
-func (l *Log) RegisterType(t *EventType) {
-	t.index = len(l.types)
-	l.types = append(l.types, t)
+var (
+	eventTypesLock sync.Mutex
+	eventTypes     []*EventType
+)
+
+func addType(t *EventType) {
+	eventTypesLock.Lock()
+	defer eventTypesLock.Unlock()
+	t.index = uint32(len(eventTypes))
+	eventTypes = append(eventTypes, t)
+}
+
+func getTypeByIndex(i int) *EventType {
+	eventTypesLock.Lock()
+	defer eventTypesLock.Unlock()
+	return eventTypes[i]
+}
+
+func (e *Event) getType() *EventType { return getTypeByIndex(int(e.Type)) }
+
+var (
+	registeredTypeMap  = make(map[string]*EventType)
+	registeredTypeLock sync.Mutex
+)
+
+func RegisterType(t *EventType) {
+	registeredTypeLock.Lock()
+	defer registeredTypeLock.Unlock()
+	if _, ok := registeredTypeMap[t.Name]; ok {
+		panic("duplicate event type name: " + t.Name)
+	}
+	registeredTypeMap[t.Name] = t
+}
+
+func typeByName(n string) (t *EventType, ok bool) {
+	registeredTypeLock.Lock()
+	defer registeredTypeLock.Unlock()
+	t, ok = registeredTypeMap[n]
+	return
 }
 
 var DefaultLog = New()
 
-func Add(t *EventType) *Event   { return DefaultLog.Add(t) }
-func RegisterType(t *EventType) { DefaultLog.RegisterType(t) }
-func Print(w io.Writer)         { DefaultLog.Print(w) }
-func Len() (n int)              { return DefaultLog.Len() }
-func Enabled() bool             { return DefaultLog.Enabled() }
-func Enable(v bool)             { DefaultLog.Enable(v) }
+func Add(t *EventType) *Event { return DefaultLog.Add(t) }
+func Print(w io.Writer)       { DefaultLog.Print(w) }
+func Len() (n int)            { return DefaultLog.Len() }
+func Enabled() bool           { return DefaultLog.Enabled() }
+func Enable(v bool)           { DefaultLog.Enable(v) }
 
 func New() *Log {
 	l := &Log{}
-	go estimateFrequency(10e-3, 1e6, 1e4, &l.cpuTime)
-	l.ZeroTime = Now()
+	l.zeroTime = Now()
 	return l
 }
 
 func Now() Time { return Time(elib.Timestamp()) }
 
+func (l *Log) timeUnit() (u float64) {
+	u = l.timeUnitSecs
+	if u == 0 {
+		elib.CPUTimeInit()
+		l.timeUnitSecs = elib.CPUSecsPerCycle()
+		u = l.timeUnitSecs
+	}
+	return
+}
+
 func (e *Event) EventString(l *Log) (s string) {
-	t := l.types[e.Type]
-	s = fmt.Sprintf("%12.6f %s", float64(e.Time-l.ZeroTime)*l.secsPerTick(), t.Stringer(e))
+	t := eventTypes[e.Type]
+	s = fmt.Sprintf("%16.9f %s", float64(e.Time-l.zeroTime)*l.timeUnit(), t.Stringer(e))
 	return
 }
 
@@ -148,19 +201,6 @@ func Printf(b []byte, format string, a ...interface{}) {
 	copy(b, fmt.Sprintf(format, a...))
 }
 
-func Uvarint(b []byte) (c []byte, i int) {
-	x, n := binary.Uvarint(b)
-	i = int(x)
-	c = b[n:]
-	return
-}
-
-func PutUvarint(b []byte, i int) (c []byte) {
-	n := binary.PutUvarint(b, uint64(i))
-	c = b[n:]
-	return
-}
-
 func (l *Log) Len() (n int) {
 	n = int(l.index)
 	max := 1 << log2NEvents
@@ -179,65 +219,25 @@ func (l *Log) firstIndex() (f int) {
 	return
 }
 
-func (l *Log) Print(w io.Writer) {
+func (l *Log) ForeachEvent(f func(e *Event)) {
 	i := l.firstIndex()
 	for n := l.Len(); n > 0; n-- {
-		e := &l.Events[int(i)&(1<<log2NEvents-1)]
-		fmt.Fprintln(w, e.EventString(l))
+		e := &l.events[int(i)&(1<<log2NEvents-1)]
+		f(e)
 		i++
 	}
 }
 
-func measureCPUCyclesPerSec(wait float64) (freq float64) {
-	var t0 [2]uint64
-	var t1 [2]int64
-	t1[0] = time.Now().UnixNano()
-	t0[0] = elib.Timestamp()
-	time.Sleep(time.Duration(1e9 * wait))
-	t1[1] = time.Now().UnixNano()
-	t0[1] = elib.Timestamp()
-	freq = 1e9 * float64(t0[1]-t0[0]) / float64(t1[1]-t1[0])
-	return
-}
-
-func round(x, unit float64) float64 {
-	return unit * math.Floor(.5+x/unit)
-}
-
-type cpuTime struct {
-	// Ticks per second of event timer (and inverse).
-	TicksPerSec, SecsPerTick float64
-}
-
-func (l *Log) secsPerTick() float64 {
-	// Wait until estimateFrequency is done.
-	for l.cpuTime.TicksPerSec == 0 {
-	}
-	return l.cpuTime.SecsPerTick
-}
-
-func estimateFrequency(dt, unit, tolerance float64, result *cpuTime) {
-	var sum, sum2, ave, rms, n float64
-	for n = float64(1); true; n++ {
-		f := measureCPUCyclesPerSec(dt)
-		sum += f
-		sum2 += f * f
-		ave = sum / n
-		rms = math.Sqrt((sum2/n - ave*ave) / n)
-		if n >= 16 && rms < tolerance {
-			break
-		}
-	}
-
-	result.TicksPerSec = round(ave, unit)
-	result.SecsPerTick = 1 / result.TicksPerSec
-	return
+func (l *Log) Print(w io.Writer) {
+	l.ForeachEvent(func(e *Event) {
+		fmt.Fprintln(w, e.EventString(l))
+	})
 }
 
 func (t *EventType) Tag(i int, sep string) (tag string) {
 	tag = ""
-	if i < len(t.tags) {
-		tag = t.tags[i] + sep
+	if i < len(t.Tags) {
+		tag = t.Tags[i] + sep
 	}
 	return
 }
@@ -245,15 +245,15 @@ func (t *EventType) Tag(i int, sep string) (tag string) {
 func (t *EventType) TagIndex(s string) (i int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	l := len(t.tags)
-	if t.indexForTag == nil {
-		t.indexForTag = make(map[string]int)
+	l := len(t.Tags)
+	if t.IndexForTag == nil {
+		t.IndexForTag = make(map[string]int)
 	}
-	i, ok := t.indexForTag[s]
+	i, ok := t.IndexForTag[s]
 	if !ok {
 		i = l
-		t.indexForTag[s] = i
-		t.tags = append(t.tags, s)
+		t.IndexForTag[s] = i
+		t.Tags = append(t.Tags, s)
 	}
 	return
 }
