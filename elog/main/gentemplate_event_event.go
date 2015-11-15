@@ -11,16 +11,21 @@ import (
 )
 
 var eventType = &EventType{
-	Name:     "main.event",
-	Stringer: stringer_event,
-	Encoder:  encoder_event,
-	Decoder:  decoder_event,
+	Name: "main.event",
 }
 
-func init() { RegisterType(eventType) }
+func init() {
+	t := eventType
+	t.Stringer = stringer_event
+	t.Encoder = encoder_event
+	t.Decoder = decoder_event
+	RegisterType(eventType)
+}
 
 func stringer_event(e *Event) string {
-	x := (*event)(unsafe.Pointer(&e.Data[0]))
+	var x event
+	b := (*[EventDataBytes]byte)(unsafe.Pointer(&x))
+	copy(b[:], e.Data[:])
 	return x.String()
 }
 
