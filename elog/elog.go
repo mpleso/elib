@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,11 +40,10 @@ type EventType struct {
 	Decoder  func(b []byte, e *Event) int
 	Encoder  func(b []byte, e *Event) int
 
-	registerOnce sync.Once
-	index        uint32
-	lock         sync.Mutex // protects following
-	Tags         []string
-	IndexForTag  map[string]int
+	index       uint32
+	lock        sync.Mutex // protects following
+	Tags        []string
+	IndexForTag map[string]int
 }
 
 type Log struct {
@@ -57,12 +57,12 @@ type Log struct {
 	disableIndex uint64
 
 	// Timestamp when log was created.
-	zeroTime Time
+	cpuStartTime Time
 
-	unixZeroTime int64
+	StartTime time.Time
 
-	// Timer tick in seconds.
-	timeUnitSecs float64
+	// Timer tick in nanosecond units.
+	timeUnitNsec float64
 
 	// Dummy event to use when logging is disabled.
 	disabledEvent Event
@@ -94,7 +94,6 @@ func (l *Log) Add(t *EventType) *Event {
 	if !l.Enabled() {
 		return &l.disabledEvent
 	}
-	t.registerOnce.Do(func() { addType(t) })
 	i := atomic.AddUint64(&l.index, 1)
 	e := &l.events[int(i-1)&(1<<log2NEvents-1)]
 	e.timestamp = Now()
@@ -105,13 +104,18 @@ func (l *Log) Add(t *EventType) *Event {
 var (
 	eventTypesLock sync.Mutex
 	eventTypes     []*EventType
+	typeByName     = make(map[string]*EventType)
 )
+
+func addTypeNoLock(t *EventType) {
+	t.index = uint32(len(eventTypes))
+	eventTypes = append(eventTypes, t)
+}
 
 func addType(t *EventType) {
 	eventTypesLock.Lock()
 	defer eventTypesLock.Unlock()
-	t.index = uint32(len(eventTypes))
-	eventTypes = append(eventTypes, t)
+	addTypeNoLock(t)
 }
 
 func getTypeByIndex(i int) *EventType {
@@ -122,24 +126,20 @@ func getTypeByIndex(i int) *EventType {
 
 func (e *Event) getType() *EventType { return getTypeByIndex(int(e.Type)) }
 
-var (
-	registeredTypeMap  = make(map[string]*EventType)
-	registeredTypeLock sync.Mutex
-)
-
 func RegisterType(t *EventType) {
-	registeredTypeLock.Lock()
-	defer registeredTypeLock.Unlock()
-	if _, ok := registeredTypeMap[t.Name]; ok {
+	eventTypesLock.Lock()
+	defer eventTypesLock.Unlock()
+	if _, ok := typeByName[t.Name]; ok {
 		panic("duplicate event type name: " + t.Name)
 	}
-	registeredTypeMap[t.Name] = t
+	typeByName[t.Name] = t
+	addTypeNoLock(t)
 }
 
-func typeByName(n string) (t *EventType, ok bool) {
-	registeredTypeLock.Lock()
-	defer registeredTypeLock.Unlock()
-	t, ok = registeredTypeMap[n]
+func getTypeByName(n string) (t *EventType, ok bool) {
+	eventTypesLock.Lock()
+	defer eventTypesLock.Unlock()
+	t, ok = typeByName[n]
 	return
 }
 
@@ -153,33 +153,93 @@ func Enable(v bool)           { DefaultLog.Enable(v) }
 
 func New() *Log {
 	l := &Log{}
-	l.zeroTime = Now()
-	l.unixZeroTime = time.Now().UnixNano()
+	l.cpuStartTime = Now()
+	l.StartTime = time.Now()
 	return l
 }
 
 func Now() Time { return Time(elib.Timestamp()) }
 
-func (l *Log) timeUnit() (u float64) {
-	u = l.timeUnitSecs
+func (l *Log) timeUnitNsecs() (u float64) {
+	u = l.timeUnitNsec
 	if u == 0 {
 		elib.CPUTimeInit()
-		l.timeUnitSecs = elib.CPUSecsPerCycle()
-		u = l.timeUnitSecs
+		l.timeUnitNsec = 1e9 / elib.CPUCyclesPerSec()
+		u = l.timeUnitNsec
 	}
 	return
 }
 
 // Time event happened in seconds relative to start of log.
-func (e *Event) Time(l *Log) float64 { return float64(e.timestamp-l.zeroTime) * l.timeUnit() }
+func (e *Event) ElapsedTime(l *Log) float64 {
+	return 1e-9 * float64(e.timestamp-l.cpuStartTime) * l.timeUnitNsecs()
+}
 
-// Absolute time in nanosecs from Unix epoch.
-func (e *Event) TimeUnixNano(l *Log) int64 { return l.unixZeroTime + int64(1e9*e.Time(l)) }
+func (e *Event) Time(l *Log) time.Time {
+	nsec := float64(e.timestamp-l.cpuStartTime) * l.timeUnitNsecs()
+	return l.StartTime.Add(time.Duration(nsec))
+}
+
+type LogTimeBounds struct {
+	// Starting time truncated to nearest second.
+	Start                 time.Time
+	Min, Max, Unit, Round float64
+	UnitName              string
+}
+
+func (l *Log) TimeBounds() (tb *LogTimeBounds) {
+	e0, e1 := l.GetEvent(0), l.GetEvent(l.Len()-1)
+	t0, t1 := e0.ElapsedTime(l), e1.ElapsedTime(l)
+
+	tUnit := float64(1)
+	mult := float64(1)
+	unitName := "sec"
+	if t1 > t0 {
+		v := math.Floor(math.Log10(t1 - t0))
+		iv := float64(0)
+		switch {
+		case v < -6:
+			iv = -9.
+			tUnit = 1e-9
+			unitName = "nsec"
+		case v < -3:
+			iv = -6.
+			tUnit = 1e-6
+			unitName = "μsec"
+		case v < 0:
+			iv = -3.
+			tUnit = 1e-3
+			unitName = "msec"
+		}
+		mult = math.Pow10(int(math.Floor(v - iv)))
+	}
+
+	// Round absolute Go start time to seconds and add difference (nanoseconds part) to times.
+	startSecs := l.StartTime.Truncate(time.Second)
+	dt := 1e-9 * float64(l.StartTime.Sub(startSecs))
+	t0 += dt
+	t1 += dt
+
+	t0 = math.Floor(t0 / tUnit)
+	t1 = math.Ceil(t1 / tUnit)
+
+	t0 = tUnit * mult * math.Floor(t0/mult)
+	t1 = tUnit * mult * math.Ceil(t1/mult)
+
+	return &LogTimeBounds{
+		Min:      t0,
+		Max:      t1,
+		Round:    mult,
+		Unit:     tUnit,
+		Start:    startSecs,
+		UnitName: unitName,
+	}
+}
 
 func (e *Event) EventString(l *Log) (s string) {
 	t := e.getType()
 	s = fmt.Sprintf("%s: %s",
-		time.Unix(0, e.TimeUnixNano(l)).Format("2006-01-02 15:04:05.000000000"),
+		e.Time(l).Format("2006-01-02 15:04:05.000000000"),
 		t.Stringer(e))
 	return
 }
@@ -229,6 +289,11 @@ func (l *Log) firstIndex() (f int) {
 	}
 	f &= 1<<log2NEvents - 1
 	return
+}
+
+func (l *Log) GetEvent(index int) *Event {
+	f := l.firstIndex()
+	return &l.events[(f+index)&(1<<log2NEvents-1)]
 }
 
 func (l *Log) ForeachEvent(f func(e *Event)) {

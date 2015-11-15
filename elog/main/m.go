@@ -40,6 +40,12 @@ func main() {
 
 	elog.Print(os.Stdout)
 
+	if false {
+		tb := elog.DefaultLog.TimeBounds()
+		fmt.Printf("%+v\n", tb)
+		os.Exit(0)
+	}
+
 	err := elog.DefaultLog.Save(&b)
 	if err != nil {
 		panic(err)

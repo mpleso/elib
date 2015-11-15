@@ -106,49 +106,51 @@ func (l *Log) MarshalBinary() ([]byte, error) {
 	bo := binary.BigEndian
 
 	b.Validate(uint(i + 8))
-	bo.PutUint64(b[i:], math.Float64bits(l.timeUnit()))
+	bo.PutUint64(b[i:], math.Float64bits(l.timeUnitNsecs()))
 	i += 8
 
-	b.Validate(uint(i + 2*binary.MaxVarintLen64))
-	i += binary.PutUvarint(b[i:], uint64(l.zeroTime))
-	i += binary.PutUvarint(b[i:], uint64(l.unixZeroTime))
+	b.Validate(uint(i + binary.MaxVarintLen64))
+	i += binary.PutUvarint(b[i:], uint64(l.cpuStartTime))
+
+	d, err := l.StartTime.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	b.Validate(uint(i + len(b) + binary.MaxVarintLen64))
+	i += binary.PutUvarint(b[i:], uint64(len(d)))
+	i += copy(b[i:], d)
 
 	b.Validate(uint(i + binary.MaxVarintLen64))
 	i += binary.PutUvarint(b[i:], uint64(l.Len()))
 
 	// Map global event types to log local ones.
-	var (
-		localByGlobal elib.Uint32Vec
-		globalByLocal elib.Uint16Vec
-		localType     uint16
-	)
+	var localTypes elib.Uint16Vec
+	var globalTypes elib.Uint32Vec
 
+	typesUsed := elib.Bitmap(0)
 	l.ForeachEvent(func(e *Event) {
-		g := uint(e.Type)
-		localByGlobal.Validate(g)
-		if l := localByGlobal[g]; l == 0 {
-			localType = uint16(len(globalByLocal))
-			localByGlobal[g] = uint32(1 + localType)
-			globalByLocal.Validate(uint(localType))
-			globalByLocal[localType] = uint16(g)
-		} else {
-			localType = uint16(l - 1)
+		ti := uint(e.Type)
+		if !typesUsed.Get(ti) {
+			typesUsed = typesUsed.Orx(ti)
+			globalTypes.Validate(ti)
+			globalTypes[ti] = uint32(len(localTypes))
+			localTypes = append(localTypes, e.Type)
 		}
 	})
 
 	// Encode number of unique types followed by type names.
 	b.Validate(uint(i + binary.MaxVarintLen64))
-	i += binary.PutUvarint(b[i:], uint64(len(localByGlobal)))
-	for x := range localByGlobal {
-		t := getTypeByIndex(int(localByGlobal[x] - 1))
+	i += binary.PutUvarint(b[i:], uint64(len(localTypes)))
+	for x := range localTypes {
+		t := getTypeByIndex(int(localTypes[x]))
 		b.Validate(uint(i + binary.MaxVarintLen64 + len(t.Name)))
 		i += binary.PutUvarint(b[i:], uint64(len(t.Name)))
 		i += copy(b[i:], t.Name)
 	}
 
-	t := l.zeroTime
+	t := l.cpuStartTime
 	l.ForeachEvent(func(e *Event) {
-		b, t, i = e.encode(b, uint16(localByGlobal[e.Type]-1), t, i)
+		b, t, i = e.encode(b, uint16(globalTypes[e.Type]), t, i)
 	})
 
 	return b[:i], nil
@@ -158,19 +160,27 @@ func (l *Log) UnmarshalBinary(b []byte) (err error) {
 	i := 0
 	bo := binary.BigEndian
 
-	l.timeUnitSecs = math.Float64frombits(bo.Uint64(b[i:]))
+	l.timeUnitNsec = math.Float64frombits(bo.Uint64(b[i:]))
 	i += 8
 
 	if x, n := binary.Uvarint(b[i:]); n > 0 {
-		l.zeroTime = Time(x)
+		l.cpuStartTime = Time(x)
 		i += n
 	} else {
 		return errUnderflow
 	}
 
 	if x, n := binary.Uvarint(b[i:]); n > 0 {
-		l.unixZeroTime = int64(x)
 		i += n
+		timeLen := int(x)
+		if i+timeLen > len(b) {
+			return errUnderflow
+		}
+		err = l.StartTime.UnmarshalBinary(b[i : i+timeLen])
+		if err != nil {
+			return err
+		}
+		i += timeLen
 	} else {
 		return errUnderflow
 	}
@@ -200,7 +210,7 @@ func (l *Log) UnmarshalBinary(b []byte) (err error) {
 			}
 			name := string(b[i : i+nameLen])
 			i += nameLen
-			if tp, ok := typeByName(name); !ok {
+			if tp, ok := getTypeByName(name); !ok {
 				return fmt.Errorf("unknown type named `%s'", name)
 			} else {
 				typeMap[li] = uint16(tp.index)
@@ -210,7 +220,7 @@ func (l *Log) UnmarshalBinary(b []byte) (err error) {
 		}
 	}
 
-	t := l.zeroTime
+	t := l.cpuStartTime
 	for ei := 0; ei < int(l.index); ei++ {
 		e := &l.events[ei]
 		t, i, err = e.decode(b, typeMap, t, i)
@@ -230,7 +240,7 @@ func (t *EventType) MarshalBinary() ([]byte, error) {
 
 func (t *EventType) UnmarshalBinary(data []byte) (err error) {
 	n := string(data)
-	if rt, ok := typeByName(n); ok {
+	if rt, ok := getTypeByName(n); ok {
 		*t = *rt
 	} else {
 		err = errors.New("unknown type: " + n)
