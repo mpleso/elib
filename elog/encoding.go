@@ -36,13 +36,8 @@ func (l *Log) Restore(r io.Reader) (err error) {
 	return
 }
 
-type EventDataDecoder interface {
-	Decode(b []byte) int
-}
-
-type EventDataEncoder interface {
-	Encode(b []byte) int
-}
+func (e *Event) EncodeData(b []byte) int { return e.getType().Encode(b, e) }
+func (e *Event) DecodeData(b []byte) int { return e.getType().Decode(b, e) }
 
 func (e *Event) encode(b0 elib.ByteVec, eType uint16, t0 Time, i0 int) (b elib.ByteVec, t Time, i int) {
 	b, i = b0, i0
@@ -51,9 +46,8 @@ func (e *Event) encode(b0 elib.ByteVec, eType uint16, t0 Time, i0 int) (b elib.B
 	t = e.timestamp
 	i += binary.PutUvarint(b[i:], uint64(t-t0))
 	i += binary.PutUvarint(b[i:], uint64(eType))
-	i += binary.PutUvarint(b[i:], uint64(e.Track))
-	tp := e.getType()
-	i += tp.Encoder(b[i:], e)
+	i += binary.PutUvarint(b[i:], uint64(e.track))
+	i += e.EncodeData(b[i:])
 	return
 }
 
@@ -64,9 +58,8 @@ var (
 func (e *Event) decode(b elib.ByteVec, typeMap elib.Uint16Vec, t0 Time, i0 int) (t Time, i int, err error) {
 	i, t = i0, t0
 	var (
-		x  uint64
-		n  int
-		tp *EventType
+		x uint64
+		n int
 	)
 
 	if x, n = binary.Uvarint(b[i:]); n <= 0 {
@@ -82,17 +75,16 @@ func (e *Event) decode(b elib.ByteVec, typeMap elib.Uint16Vec, t0 Time, i0 int) 
 	if int(x) >= len(typeMap) {
 		return 0, 0, fmt.Errorf("type index out of range %d >= %d", x, len(typeMap))
 	}
-	e.Type = typeMap[x]
+	e.typeIndex = typeMap[x]
 	i += n
 
 	if x, n = binary.Uvarint(b[i:]); n <= 0 {
 		goto short
 	}
-	e.Track = uint16(x)
+	e.track = uint16(x)
 	i += n
 
-	tp = getTypeByIndex(int(e.Type))
-	i += tp.Decoder(b[i:], e)
+	i += e.DecodeData(b[i:])
 	return
 
 short:
@@ -129,12 +121,12 @@ func (l *Log) MarshalBinary() ([]byte, error) {
 
 	typesUsed := elib.Bitmap(0)
 	l.ForeachEvent(func(e *Event) {
-		ti := uint(e.Type)
+		ti := uint(e.typeIndex)
 		if !typesUsed.Get(ti) {
 			typesUsed = typesUsed.Orx(ti)
 			globalTypes.Validate(ti)
 			globalTypes[ti] = uint32(len(localTypes))
-			localTypes = append(localTypes, e.Type)
+			localTypes = append(localTypes, e.typeIndex)
 		}
 	})
 
@@ -150,7 +142,7 @@ func (l *Log) MarshalBinary() ([]byte, error) {
 
 	t := l.cpuStartTime
 	l.ForeachEvent(func(e *Event) {
-		b, t, i = e.encode(b, uint16(globalTypes[e.Type]), t, i)
+		b, t, i = e.encode(b, uint16(globalTypes[e.typeIndex]), t, i)
 	})
 
 	return b[:i], nil
@@ -246,4 +238,10 @@ func (t *EventType) UnmarshalBinary(data []byte) (err error) {
 		err = errors.New("unknown type: " + n)
 	}
 	return
+}
+
+func EncodeUint32(b []byte, x uint32) int { return binary.PutUvarint(b, uint64(x)) }
+func DecodeUint32(b []byte, i int) (uint32, int) {
+	x, n := binary.Uvarint(b[i:])
+	return uint32(x), i + n
 }

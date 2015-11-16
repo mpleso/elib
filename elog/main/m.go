@@ -4,7 +4,6 @@ import (
 	"github.com/platinasystems/elib/elog"
 
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 )
@@ -14,21 +13,11 @@ type event struct {
 	i uint32
 }
 
-func (e *event) String() string {
-	return fmt.Sprintf("event #%d", e.i)
-}
+func (e *event) String() string          { return fmt.Sprintf("event #%d", e.i) }
+func (e *event) Encode(b []byte) int     { return elog.EncodeUint32(b, e.i) }
+func (e *event) Decode(b []byte) (i int) { e.i, i = elog.DecodeUint32(b, i); return }
 
 //go:generate gentemplate -d Package=main -id event -d Type=event github.com/platinasystems/elib/elog/event.tmpl
-
-func (e *event) Encode(b []byte) int {
-	return binary.PutUvarint(b, uint64(e.i))
-}
-
-func (e *event) Decode(b []byte) int {
-	x, n := binary.Uvarint(b)
-	e.i = uint32(x)
-	return n
-}
 
 func main() {
 	elog.Enable(true)

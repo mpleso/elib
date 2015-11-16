@@ -25,7 +25,8 @@ type Time uint64
 type Event struct {
 	timestamp Time
 
-	Type, Track uint16
+	typeIndex uint16
+	track     uint16
 
 	Data [EventDataBytes]byte
 }
@@ -37,8 +38,8 @@ type Track struct {
 type EventType struct {
 	Name     string
 	Stringer func(e *Event) string
-	Decoder  func(b []byte, e *Event) int
-	Encoder  func(b []byte, e *Event) int
+	Decode   func(b []byte, e *Event) int
+	Encode   func(b []byte, e *Event) int
 
 	index       uint32
 	lock        sync.Mutex // protects following
@@ -97,7 +98,7 @@ func (l *Log) Add(t *EventType) *Event {
 	i := atomic.AddUint64(&l.index, 1)
 	e := &l.events[int(i-1)&(1<<log2NEvents-1)]
 	e.timestamp = Now()
-	e.Type = uint16(t.index)
+	e.typeIndex = uint16(t.index)
 	return e
 }
 
@@ -124,7 +125,7 @@ func getTypeByIndex(i int) *EventType {
 	return eventTypes[i]
 }
 
-func (e *Event) getType() *EventType { return getTypeByIndex(int(e.Type)) }
+func (e *Event) getType() *EventType { return getTypeByIndex(int(e.typeIndex)) }
 
 func RegisterType(t *EventType) {
 	eventTypesLock.Lock()
@@ -244,13 +245,16 @@ func (e *Event) EventString(l *Log) (s string) {
 	return
 }
 
-func String(b []byte) string {
-	i := bytes.IndexByte(b, 0)
-	if i < 0 {
-		return string(b[:])
-	} else {
-		return string(b[:i])
+func StringLen(b []byte) (l int) {
+	l = bytes.IndexByte(b, 0)
+	if l < 0 {
+		l = len(b)
 	}
+	return
+}
+
+func String(b []byte) string {
+	return string(b[:StringLen(b)])
 }
 
 func PutData(b []byte, data []byte) {
@@ -296,6 +300,7 @@ func (l *Log) GetEvent(index int) *Event {
 	return &l.events[(f+index)&(1<<log2NEvents-1)]
 }
 
+// fixme locking
 func (l *Log) ForeachEvent(f func(e *Event)) {
 	i := l.firstIndex()
 	for n := l.Len(); n > 0; n-- {
@@ -336,18 +341,18 @@ func (t *EventType) TagIndex(s string) (i int) {
 }
 
 // Generic events
-type GenEvent struct {
+type genEvent struct {
 	s [EventDataBytes]byte
 }
 
-func (e *GenEvent) String() string {
-	return String(e.s[:])
-}
+func (e *genEvent) String() string      { return String(e.s[:]) }
+func (e *genEvent) Encode(b []byte) int { return copy(b, e.s[:]) }
+func (e *genEvent) Decode(b []byte) int { return copy(e.s[:], b) }
 
-func Gen(format string, args ...interface{}) {
-	e := GenEvent{}
+func GenEvent(format string, args ...interface{}) {
+	e := genEvent{}
 	Printf(e.s[:], format, args...)
 	e.Log()
 }
 
-//go:generate gentemplate -d Package=elog -id GenEvent -d Type=GenEvent github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=elog -id genEvent -d Type=genEvent github.com/platinasystems/elib/elog/event.tmpl
