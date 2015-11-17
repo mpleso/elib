@@ -29,26 +29,21 @@ func main() {
 
 	elog.Print(os.Stdout)
 
-	if false {
-		tb := elog.DefaultLog.TimeBounds()
-		fmt.Printf("%+v\n", tb)
-		os.Exit(0)
-	}
+	v := elog.NewView()
 
-	err := elog.DefaultLog.Save(&b)
+	err := v.Save(&b)
 	if err != nil {
 		panic(err)
 	}
 
-	if nb, ne := b.Len(), elog.DefaultLog.Len(); ne > 0 {
+	if nb, ne := b.Len(), elog.Len(); ne > 0 {
 		fmt.Printf("%d events, %d bytes, %.4f bytes/event\n", ne, nb, float64(nb)/float64(ne))
 	}
 
-	l := &elog.Log{}
-	err = l.Restore(&b)
+	err = v.Restore(&b)
 	if err != nil {
 		panic(err)
 	}
 
-	l.Print(os.Stdout)
+	v.Print(os.Stdout)
 }
