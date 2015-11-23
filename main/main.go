@@ -1,7 +1,8 @@
 package main
 
 import (
-	"elib"
+	"github.com/platinasystems/elib"
+
 	"fmt"
 )
 

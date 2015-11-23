@@ -6,7 +6,7 @@ import (
 )
 
 // Number of bits per bitmap element
-const bitmapBits = 64
+const bitmapBits = WordBits
 
 // Bitmaps of <= 63 are stored as positive int64s.
 // Negative int64s are indices into pool of all known bitmaps
@@ -16,7 +16,7 @@ type Bitmap Word
 //go:generate gentemplate -d Package=elib -id Bitmaps -d Type=[]Bitmap vec.tmpl
 
 func (b Bitmap) isPoolIndex() bool {
-	if b>>(Log2WordBits-1) != 0 { // sign bit
+	if b>>(WordBits-1) != 0 { // sign bit
 		return true
 	}
 	return false
