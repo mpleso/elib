@@ -164,12 +164,12 @@ func (heap *Heap) newElt() (ei Index) {
 	return
 }
 
-func (heap *Heap) Get(sizeArg uint) (id Index, offset uint) {
-	size := Index(sizeArg)
+func (heap *Heap) Get(size uint) (id Index, offset uint) { return heap.get(size, Index(size)) }
 
+func (heap *Heap) get(sizeArg uint, size Index) (id Index, offset uint) {
 	// Keep track of largest size caller asks for.
-	if size > heap.maxSize {
-		heap.maxSize = size
+	if Index(sizeArg) > heap.maxSize {
+		heap.maxSize = Index(sizeArg)
 	}
 
 	if size <= 0 {
@@ -288,7 +288,7 @@ func (heap *Heap) GetAligned(sizeArg, log2Alignment uint) (id Index, offset uint
 	sa := Index(sizeArg)
 	s := Index(size)
 
-	ei, offset := heap.Get(size)
+	ei, offset := heap.get(sizeArg, s)
 	o := Index(offset)
 
 	// Aligned offset.
