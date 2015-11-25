@@ -32,8 +32,8 @@ type Heap struct {
 	maxLen Index
 }
 
-func (p *Heap) SetMaxLen(l int) {
-	p.maxLen = Index(l)
+func (heap *Heap) SetMaxLen(l int) {
+	heap.maxLen = Index(l)
 }
 
 type freeElt struct {
@@ -44,10 +44,10 @@ type freeElt struct {
 //go:generate gentemplate -d Package=elib -id freeElts -d Type=freeEltVec vec.tmpl
 
 type heapElt struct {
-	// Index of this element
-	index Index
+	// Offset of this element in heap.
+	offset Index
 
-	// Index on free list for this size or ^uint32(0) if not free
+	// Index on free list for this size or ^uint32(0) if not free.
 	free Index
 
 	// Index of next and previous elements
@@ -58,224 +58,317 @@ func (e *heapElt) isFree() bool {
 	return e.free != MaxIndex
 }
 
-func (p *Heap) freeAfter(ei, size, d Index) {
-	fi := p.newElt()
-	e, f := &p.elts[ei], &p.elts[fi]
-	f.index = e.index + Index(size-d)
+func (heap *Heap) freeAfter(ei, eSize, freeSize Index) {
+	// Fetch elt and new free elt.
+	fi := heap.newElt()
+	e, f := &heap.elts[ei], &heap.elts[fi]
+
+	f.offset = e.offset + Index(eSize-freeSize)
 	f.next = e.next
 	f.prev = ei
 	if f.next != MaxIndex {
-		n := &p.elts[f.next]
-		n.prev = fi
+		heap.elts[f.next].prev = fi
 	}
+
 	e.next = fi
-	if ei == p.tail {
-		p.tail = fi
+	if ei == heap.tail {
+		heap.tail = fi
 	}
-	p.freeElt(fi, d)
+	heap.freeElt(fi, freeSize)
 }
 
-func (p *Heap) freeElt(ei, size Index) {
-	if size > p.maxSize {
+func (heap *Heap) freeBefore(ei, eSize, freeSize Index) {
+	// Fetch elt and new free elt.
+	fi := heap.newElt()
+	e, f := &heap.elts[ei], &heap.elts[fi]
+
+	f.offset = e.offset
+	f.prev = e.prev
+	f.next = ei
+	if f.prev == MaxIndex {
+		heap.head = fi
+	} else {
+		heap.elts[f.prev].next = fi
+	}
+
+	e.offset += freeSize
+	e.prev = fi
+	heap.freeElt(fi, freeSize)
+}
+
+func (heap *Heap) freeElt(ei, size Index) {
+	if size > heap.maxSize {
 		size = 0
 	}
-	p.free.Validate(uint(size))
-	p.elts[ei].free = Index(len(p.free[size]))
-	p.free[size] = append(p.free[size], freeElt{ei})
+	heap.free.Validate(uint(size))
+	heap.elts[ei].free = Index(len(heap.free[size]))
+	heap.free[size] = append(heap.free[size], freeElt{ei})
 }
 
 var poison heapElt = heapElt{
-	index: MaxIndex,
-	free:  MaxIndex,
-	next:  MaxIndex,
-	prev:  MaxIndex,
+	offset: MaxIndex,
+	free:   MaxIndex,
+	next:   MaxIndex,
+	prev:   MaxIndex,
 }
 
-func (p *Heap) removeFreeElt(ei, size Index) {
-	e := &p.elts[ei]
+func (heap *Heap) removeFreeElt(ei, size Index) {
+	e := &heap.elts[ei]
 	fi := e.free
-	if size >= Index(len(p.free)) {
+	if size >= Index(len(heap.free)) {
 		size = 0
 	}
-	if l := Index(len(p.free[size])); fi < l && p.free[size][fi].elt == ei {
+	if l := Index(len(heap.free[size])); fi < l && heap.free[size][fi].elt == ei {
 		if fi < l-1 {
-			gi := p.free[size][l-1].elt
-			p.free[size][fi].elt = gi
-			p.elts[gi].free = fi
+			gi := heap.free[size][l-1].elt
+			heap.free[size][fi].elt = gi
+			heap.elts[gi].free = fi
 		}
-		p.free[size] = p.free[size][:l-1]
+		heap.free[size] = heap.free[size][:l-1]
 		*e = poison
-		p.removed = append(p.removed, ei)
+		heap.removed = append(heap.removed, ei)
 		return
 	}
 	panic("corrupt free list")
 }
 
-func (p *Heap) eltSize(e *heapElt) Index {
-	i := Index(p.len)
+func (heap *Heap) eltSize(e *heapElt) Index {
+	o := Index(heap.len)
 	if e.next != MaxIndex {
-		i = p.elts[e.next].index
+		o = heap.elts[e.next].offset
 	}
-	return i - e.index
+	return o - e.offset
 }
 
-func (p *Heap) size(ei Index) Index { return p.eltSize(&p.elts[ei]) }
+func (heap *Heap) size(ei Index) Index { return heap.eltSize(&heap.elts[ei]) }
 
-func (p *Heap) Len(ei Index) uint {
-	return uint(p.size(ei))
+func (heap *Heap) Len(ei Index) uint {
+	return uint(heap.size(ei))
 }
 
-func (p *Heap) GetID(ei Index) (offset, len int) {
-	e := &p.elts[ei]
-	return int(e.index), int(p.eltSize(e))
+func (heap *Heap) GetID(ei Index) (offset, len int) {
+	e := &heap.elts[ei]
+	return int(e.offset), int(heap.eltSize(e))
 }
 
 // Recycle previously removed elts.
-func (p *Heap) newElt() (ei Index) {
-	if l := len(p.removed); l > 0 {
-		ei = p.removed[l-1]
-		p.removed = p.removed[:l-1]
-		p.elts[ei] = poison
+func (heap *Heap) newElt() (ei Index) {
+	if l := len(heap.removed); l > 0 {
+		ei = heap.removed[l-1]
+		heap.removed = heap.removed[:l-1]
+		heap.elts[ei] = poison
 	} else {
-		ei = Index(len(p.elts))
-		p.elts = append(p.elts, poison)
+		ei = Index(len(heap.elts))
+		heap.elts = append(heap.elts, poison)
 	}
 	return
 }
 
-func (p *Heap) Get(sizeArg uint) (id Index, index uint) {
+func (heap *Heap) Get(sizeArg uint) (id Index, offset uint) {
 	size := Index(sizeArg)
 
 	// Keep track of largest size caller asks for.
-	if size > p.maxSize {
-		p.maxSize = size
+	if size > heap.maxSize {
+		heap.maxSize = size
 	}
 
 	if size <= 0 {
 		panic("size")
 	}
 
-	if int(size) < len(p.free) {
-		if l := len(p.free[size]); l > 0 {
-			ei := p.free[size][l-1].elt
-			e := &p.elts[ei]
-			p.free[size] = p.free[size][:l-1]
+	// Quickly allocate from free list of given size.
+	if int(size) < len(heap.free) {
+		if l := len(heap.free[size]); l > 0 {
+			ei := heap.free[size][l-1].elt
+			e := &heap.elts[ei]
+			heap.free[size] = heap.free[size][:l-1]
 			e.free = MaxIndex
-			index = uint(e.index)
+			offset = uint(e.offset)
 			id = ei
 			return
 		}
 	}
 
-	if len(p.free) > 0 {
-		l := Index(len(p.free[0]))
+	// Search free list 0: where free objects > max requested size are kept.
+	if len(heap.free) > 0 {
+		l := Index(len(heap.free[0]))
 		for fi := Index(0); fi < l; fi++ {
-			ei := p.free[0][fi].elt
-			e := &p.elts[ei]
-			es := p.eltSize(e)
+			ei := heap.free[0][fi].elt
+			e := &heap.elts[ei]
+			es := heap.eltSize(e)
 			fs := int(es) - int(size)
 			if fs < 0 {
 				continue
 			}
 			if fi < l-1 {
-				gi := p.free[0][l-1].elt
-				p.free[0][fi].elt = gi
-				p.elts[gi].free = fi
+				gi := heap.free[0][l-1].elt
+				heap.free[0][fi].elt = gi
+				heap.elts[gi].free = fi
 			}
-			p.free[0] = p.free[0][:l-1]
+			heap.free[0] = heap.free[0][:l-1]
 
-			index = uint(e.index)
+			offset = uint(e.offset)
 			e.free = MaxIndex
 			id = ei
 
 			if fs > 0 {
-				p.freeAfter(ei, es, Index(fs))
+				heap.freeAfter(ei, es, Index(fs))
 			}
 			return
 		}
 	}
 
-	if p.maxLen != 0 && p.len+size > p.maxLen {
+	if heap.maxLen != 0 && heap.len+size > heap.maxLen {
 		panic(fmt.Errorf("heap overflow allocating object of length %d", size))
 	}
 
-	if p.len == 0 {
-		p.head = 0
-		p.tail = MaxIndex
+	if heap.len == 0 {
+		heap.head = 0
+		heap.tail = MaxIndex
 	}
 
-	ei := p.newElt()
-	e := &p.elts[ei]
+	ei := heap.newElt()
+	e := &heap.elts[ei]
 
-	index = uint(p.len)
-	p.len += size
-	e.index = Index(index)
+	offset = uint(heap.len)
+	heap.len += size
+	e.offset = Index(offset)
 
 	e.next = MaxIndex
-	e.prev = p.tail
+	e.prev = heap.tail
 	e.free = MaxIndex
 
-	p.tail = ei
+	heap.tail = ei
 
 	if e.prev != MaxIndex {
-		p.elts[e.prev].next = ei
+		heap.elts[e.prev].next = ei
 	}
 
 	id = ei
 	return
 }
 
-func (p *Heap) Put(ei Index) (err error) {
-	e := &p.elts[ei]
+func (heap *Heap) newEltBefore(ei Index) (pi Index) {
+	pi = heap.newElt()
+	e, p := &heap.elts[ei], &heap.elts[pi]
+	p.next = ei
+	p.prev = e.prev
+	if p.prev == MaxIndex {
+		heap.head = pi
+	} else {
+		heap.elts[p.prev].next = pi
+	}
+	e.prev = pi
+	return
+}
+
+func (heap *Heap) newEltAfter(ei Index) (ni Index) {
+	ni = heap.newElt()
+	e, n := &heap.elts[ei], &heap.elts[ni]
+	n.prev = ei
+	n.next = e.next
+	if n.next == MaxIndex {
+		heap.tail = ni
+	} else {
+		heap.elts[n.next].prev = ni
+	}
+	e.next = ni
+	return
+}
+
+func (heap *Heap) GetAligned(sizeArg, log2Alignment uint) (id Index, offset uint) {
+	// Adjust size for alignment so we guarantee a large enough block.
+	a := Index(1) << log2Alignment
+
+	if a > Index(sizeArg) {
+		panic(fmt.Errorf("alignment %d > size %d", sizeArg, a))
+	}
+
+	size := sizeArg + uint(a) - 1
+	sa := Index(sizeArg)
+	s := Index(size)
+
+	ei, offset := heap.Get(size)
+	o := Index(offset)
+
+	// Aligned offset.
+	ao := (o + a - 1) &^ (a - 1)
+
+	if log2Alignment > 0 {
+		if d := ao - o; d != 0 {
+			pi := heap.newEltBefore(ei)
+			e, p := &heap.elts[ei], &heap.elts[pi]
+			p.offset = o
+			e.offset = ao
+			heap.Put(pi)
+		}
+		if d := int(o+s) - int(ao+sa); d > 0 {
+			ni := heap.newEltAfter(ei)
+			e, n := &heap.elts[ei], &heap.elts[ni]
+			e.offset = ao
+			n.offset = ao + sa
+			heap.Put(ni)
+		}
+	}
+
+	id = ei
+	offset = uint(ao)
+	return
+}
+
+func (heap *Heap) Put(ei Index) (err error) {
+	e := &heap.elts[ei]
 
 	if e.isFree() {
 		err = fmt.Errorf("duplicate free %d", ei)
 		return
 	}
 
+	// If previous element is free combine free elements.
 	if e.prev != MaxIndex {
-		prev := &p.elts[e.prev]
+		prev := &heap.elts[e.prev]
 		if prev.isFree() {
-			ps := e.index - prev.index
-			e.index = prev.index
+			ps := e.offset - prev.offset
+			e.offset = prev.offset
 			pi := e.prev
 			e.prev = prev.prev
 			if e.prev != MaxIndex {
-				p.elts[e.prev].next = ei
+				heap.elts[e.prev].next = ei
 			}
-			p.removeFreeElt(pi, ps)
-			if pi == p.head {
-				p.head = ei
+			heap.removeFreeElt(pi, ps)
+			if pi == heap.head {
+				heap.head = ei
 			}
 		}
 	}
 
+	// If next element is free also combine.
 	if e.next != MaxIndex {
-		next := &p.elts[e.next]
+		next := &heap.elts[e.next]
 		if next.isFree() {
 			ni := e.next
-			ns := p.size(ni)
+			ns := heap.size(ni)
 			e.next = next.next
 			if e.next != MaxIndex {
-				p.elts[e.next].prev = ei
+				heap.elts[e.next].prev = ei
 			}
-			p.removeFreeElt(ni, ns)
-			if ni == p.tail {
-				p.tail = ei
+			heap.removeFreeElt(ni, ns)
+			if ni == heap.tail {
+				heap.tail = ei
 			}
 		}
 	}
 
-	es := p.size(ei)
-	p.freeElt(ei, es)
+	es := heap.size(ei)
+	heap.freeElt(ei, es)
 
 	return
 }
 
-func (p *Heap) String() (s string) {
-	s = fmt.Sprintf("%d elts", len(p.elts))
-	if p.maxLen != 0 {
-		s += fmt.Sprintf(", max %d elts (0x%x)", p.maxLen, p.maxLen)
+func (heap *Heap) String() (s string) {
+	s = fmt.Sprintf("%d elts", len(heap.elts))
+	if heap.maxLen != 0 {
+		s += fmt.Sprintf(", max %d elts (0x%x)", heap.maxLen, heap.maxLen)
 	}
 	return
 }

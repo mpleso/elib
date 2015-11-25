@@ -32,7 +32,8 @@ func (p *Heap) validate() (err error) {
 
 	ei := p.head
 	prev := MaxIndex
-	index := Index(0)
+	prevIsFree := false
+	offset := Index(0)
 	for ei != MaxIndex {
 		e := &p.elts[ei]
 
@@ -51,8 +52,8 @@ func (p *Heap) validate() (err error) {
 			return
 		}
 
-		if e.index != index {
-			err = fmt.Errorf("bad index %d %+v", index, e)
+		if e.offset != offset {
+			err = fmt.Errorf("bad offset %d %+v", offset, e)
 			return
 		}
 
@@ -61,15 +62,20 @@ func (p *Heap) validate() (err error) {
 			err = fmt.Errorf("zero size %d %+v", ei, e)
 			return
 		}
-		index += size
+		offset += size
 
 		visitedElts[ei] = visitedAlloc
 		nVisited++
 
-		if e.isFree() {
+		isFree := e.isFree()
+		if isFree {
 			visitedElts[ei] = visitedFree
 			if size > p.maxSize {
 				size = 0
+			}
+			if prevIsFree {
+				err = fmt.Errorf("two consecutive free elts")
+				return
 			}
 			if size >= Index(len(p.free)) {
 				err = fmt.Errorf("size %d >= len free %d", size, len(p.free))
@@ -86,6 +92,7 @@ func (p *Heap) validate() (err error) {
 		}
 
 		prev = ei
+		prevIsFree = isFree
 		ei = e.next
 	}
 	if prev != p.tail {
@@ -121,6 +128,8 @@ func (p *Heap) validate() (err error) {
 }
 
 type testHeap struct {
+	heap Heap
+
 	// Number of iterations to run
 	iterations Count
 
@@ -137,6 +146,9 @@ type testHeap struct {
 	// log2 max size of objects.
 	log2MaxLen int
 
+	// Random max alignment of objects.
+	maxAlign int
+
 	verbose int
 }
 
@@ -152,6 +164,7 @@ func HeapTest() {
 	flag.Int64Var(&t.seed, "seed", 0, "Seed for random number generator")
 	flag.IntVar(&t.log2MaxLen, "len", 8, "Log2 max length of object to allocate")
 	flag.Var(&t.nObjects, "objects", "Number of random objects")
+	flag.IntVar(&t.maxAlign, "align", 0, "Maximum random alignment of objects")
 	flag.IntVar(&t.verbose, "verbose", 0, "Be verbose")
 	flag.Parse()
 
@@ -162,14 +175,31 @@ func HeapTest() {
 }
 
 type randHeapObj struct {
-	id   Index
-	n, i uint
+	id     Index
+	len    uint
+	offset uint
+	align  uint
 }
 
 //go:generate gentemplate -d Package=elib -id randHeapObj -tags debug -d Type=randHeapObj vec.tmpl
 
+func (t *testHeap) validate(iter int) (err error) {
+	if t.validateEvery != 0 && iter%int(t.validateEvery) == 0 {
+		if err = t.heap.validate(); err != nil {
+			if t.verbose != 0 {
+				fmt.Printf("iter %d: %s\n%+v\n", iter, err, &t.heap)
+			}
+			return
+		}
+	}
+	if t.printEvery != 0 && iter%int(t.printEvery) == 0 {
+		fmt.Printf("%10g iterations: %s\n", float64(iter), &t.heap)
+	}
+	return
+}
+
 func runHeapTest(t *testHeap) (err error) {
-	var p Heap
+	var p *Heap = &t.heap
 	var s Uint64Vec
 	var objs randHeapObjVec
 
@@ -184,42 +214,40 @@ func runHeapTest(t *testHeap) (err error) {
 	objs.Resize(uint(t.nObjects))
 	var iter int
 
-	validate := func() (err error) {
-		if t.validateEvery != 0 && iter%int(t.validateEvery) == 0 {
-			if err = p.validate(); err != nil {
-				if t.verbose != 0 {
-					fmt.Printf("iter %d: %s\n%+v\n", iter, err, p)
-				}
-				return
-			}
-		}
-		if t.printEvery != 0 && iter%int(t.printEvery) == 0 {
-			fmt.Printf("%10g iterations: %s\n", float64(iter), &p)
-		}
-		return
-	}
-
 	for iter = 0; iter < int(t.iterations); iter++ {
 		o := &objs[rand.Int()%len(objs)]
-		if o.n != 0 {
-			if l := p.Len(o.id); l != o.n {
-				err = fmt.Errorf("len mismatch %d != %d", l, o.n)
+		if o.len != 0 {
+			if l := p.Len(o.id); l != o.len {
+				err = fmt.Errorf("len mismatch %d != %d", l, o.len)
 				return
 			}
 			err = p.Put(o.id)
 			if err != nil {
 				return
 			}
-			o.n = 0
+			o.len = 0
 		} else {
-			o.n = 1 + uint(rand.Int()&(1<<uint(t.log2MaxLen)-1))
-			o.id, o.i = p.Get(o.n)
-			s.Validate(o.i + o.n - 1)
-			for j := uint(0); j < o.n; j++ {
-				s[o.i+j] = uint64(o.id)<<uint(t.log2MaxLen) + uint64(o.i+j)
+			o.len = 1 + uint(rand.Int()&(1<<uint(t.log2MaxLen)-1))
+			o.align = 0
+			if t.maxAlign > 0 {
+				a := uint(t.maxAlign)
+				for 1<<a > o.len {
+					a--
+				}
+				if a > 0 {
+					o.align = uint(rand.Intn(int(a)))
+				}
+			}
+			o.id, o.offset = p.GetAligned(o.len, o.align)
+			if o.offset&((1<<o.align)-1) != 0 {
+				panic("unaligned")
+			}
+			s.Validate(o.offset + o.len - 1)
+			for j := uint(0); j < o.len; j++ {
+				s[o.offset+j] = uint64(o.id)<<uint(t.log2MaxLen) + uint64(o.offset+j)
 			}
 		}
-		err = validate()
+		err = t.validate(iter)
 		if err != nil {
 			return
 		}
@@ -229,10 +257,10 @@ func runHeapTest(t *testHeap) (err error) {
 	}
 	for i := range objs {
 		o := &objs[i]
-		if o.n > 0 {
+		if o.len > 0 {
 			p.Put(o.id)
 		}
-		err = validate()
+		err = t.validate(iter)
 		if err != nil {
 			return
 		}
