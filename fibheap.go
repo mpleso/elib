@@ -327,17 +327,17 @@ func (f *FibHeap) validate() (err error) {
 
 type testFibHeap struct {
 	// Number of iterations to run
-	iterations IterInt
+	iterations Count
 
 	// Validate/print every so many iterations (zero means never).
-	validateEvery IterInt
-	printEvery    IterInt
+	validateEvery Count
+	printEvery    Count
 
 	// Seed to make randomness deterministic.  0 means choose seed.
 	seed int64
 
 	// Number of objects to create.
-	nObjects IterInt
+	nObjects Count
 
 	verbose int
 
