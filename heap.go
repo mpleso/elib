@@ -28,7 +28,12 @@ type Heap struct {
 	// Largest size ever allocated
 	maxSize Index
 
+	// Max limit on heap size in elements.
 	maxLen Index
+}
+
+func (p *Heap) SetMaxLen(l int) {
+	p.maxLen = Index(l)
 }
 
 type freeElt struct {
@@ -106,13 +111,23 @@ func (p *Heap) removeFreeElt(ei, size Index) {
 	panic("corrupt free list")
 }
 
-func (p *Heap) size(ei Index) Index {
-	e := &p.elts[ei]
+func (p *Heap) eltSize(e *heapElt) Index {
 	i := Index(p.len)
 	if e.next != MaxIndex {
 		i = p.elts[e.next].index
 	}
 	return i - e.index
+}
+
+func (p *Heap) size(ei Index) Index { return p.eltSize(&p.elts[ei]) }
+
+func (p *Heap) Len(ei Index) uint {
+	return uint(p.size(ei))
+}
+
+func (p *Heap) GetID(ei Index) (offset, len int) {
+	e := &p.elts[ei]
+	return int(e.index), int(p.eltSize(e))
 }
 
 // Recycle previously removed elts.
@@ -157,7 +172,7 @@ func (p *Heap) Get(sizeArg uint) (id Index, index uint) {
 		for fi := Index(0); fi < l; fi++ {
 			ei := p.free[0][fi].elt
 			e := &p.elts[ei]
-			es := p.size(ei)
+			es := p.eltSize(e)
 			fs := int(es) - int(size)
 			if fs < 0 {
 				continue
@@ -180,7 +195,7 @@ func (p *Heap) Get(sizeArg uint) (id Index, index uint) {
 		}
 	}
 
-	if p.maxSize != 0 && p.len+size > p.maxSize {
+	if p.maxLen != 0 && p.len+size > p.maxLen {
 		panic(fmt.Errorf("heap overflow allocating object of length %d", size))
 	}
 
@@ -208,10 +223,6 @@ func (p *Heap) Get(sizeArg uint) (id Index, index uint) {
 
 	id = ei
 	return
-}
-
-func (p *Heap) Len(ei Index) uint {
-	return uint(p.size(ei))
 }
 
 func (p *Heap) Put(ei Index) (err error) {
@@ -261,6 +272,10 @@ func (p *Heap) Put(ei Index) (err error) {
 	return
 }
 
-func (p *Heap) String() string {
-	return fmt.Sprintf("%d elts", len(p.elts))
+func (p *Heap) String() (s string) {
+	s = fmt.Sprintf("%d elts", len(p.elts))
+	if p.maxLen != 0 {
+		s += fmt.Sprintf(", max %d elts (0x%x)", p.maxLen, p.maxLen)
+	}
+	return
 }
