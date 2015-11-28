@@ -5,19 +5,11 @@ import (
 )
 
 type Mux struct {
-	// Poll/epoll file descriptor less 1.
-	_fd      int
+	// Poll/epoll file descriptor.
+	fd       int
+	once     sync.Once
 	poolLock sync.Mutex // protects following
 	pool     filePool
-}
-
-// File descriptor as returned by epoll_create(2).  Subtract one so zero value is invalid.
-func (p *Mux) fd() int { return p._fd + 1 }
-func (p *Mux) setFd(fd int) {
-	if fd == 0 {
-		panic(fd)
-	}
-	p._fd = fd - 1
 }
 
 type File struct {

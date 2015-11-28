@@ -59,16 +59,13 @@ func epoll_create1(flag int) (fd int, err error) {
 }
 
 func (m *Mux) validate() {
-	if m._fd != 0 {
-		return
-	}
-	var err error
-	fd, err := epoll_create1(0)
-	if err != nil {
-		panic(fmt.Errorf("epoll_create %s", err))
-	}
-	m.setFd(fd)
-	return
+	m.once.Do(func() {
+		var err error
+		m.fd, err = epoll_create1(0)
+		if err != nil {
+			panic(fmt.Errorf("epoll_create %s", err))
+		}
+	})
 }
 
 func event(f Interface, l *File) (e epollEvent) {
@@ -96,7 +93,7 @@ func (m *Mux) Add(f Interface) {
 	l.poolIndex = fi
 
 	e := event(f, l)
-	if err := epoll_ctl(m.fd(), opAdd, fd, &e); err != nil {
+	if err := epoll_ctl(m.fd, opAdd, fd, &e); err != nil {
 		panic(fmt.Errorf("epoll_ctl: add %s", err))
 	}
 }
@@ -106,7 +103,7 @@ func (m *Mux) Del(f Interface) {
 	m.poolLock.Lock()
 	defer m.poolLock.Unlock()
 	l := f.GetFile()
-	if err := epoll_ctl(m.fd(), opDel, l.Fd, nil); err != nil {
+	if err := epoll_ctl(m.fd, opDel, l.Fd, nil); err != nil {
 		panic(fmt.Errorf("epoll_ctl: del %s", err))
 	}
 	fi := l.poolIndex
@@ -122,16 +119,17 @@ func (m *Mux) Update(f Interface) {
 	defer m.poolLock.Unlock()
 	l := f.GetFile()
 	e := event(f, l)
-	if err := epoll_ctl(m.fd(), opMod, l.Fd, &e); err != nil {
+	if err := epoll_ctl(m.fd, opMod, l.Fd, &e); err != nil {
 		panic(fmt.Errorf("epoll_ctl: mod %s", err))
 	}
 }
 
 func (m *Mux) Wait(secs float64) {
 	var events [256]epollEvent
+	m.validate()
 	for {
 		es := events[:]
-		n, err := epoll_pwait(m.fd(), es, secs)
+		n, err := epoll_pwait(m.fd, es, secs)
 		if err != nil {
 			panic(fmt.Errorf("epoll_pwait %s", err))
 		}
