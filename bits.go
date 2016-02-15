@@ -99,3 +99,52 @@ func NextSet(x Word) (v Word, i int) {
 	i = int(63) - int(NLeadingZeros(f))
 	return
 }
+
+/* Bit compress: based on "Hacker's Delight" code from GLS. */
+const (
+	log2Uint32Bits = 5
+	log2Uint64Bits = 6
+)
+
+type BitCompressUint64 struct {
+	state [1 + log2Uint64Bits]uint64
+}
+
+func (s *BitCompressUint64) SetMask(mask uint64) {
+	m := ^mask
+	zm := mask
+	s.state[0] = mask
+	for i := uint(1); i < uint(len(s.state)); i++ {
+		q := m
+		m ^= m << 1
+		m ^= m << 2
+		m ^= m << 4
+		m ^= m << 8
+		m ^= m << 16
+		m ^= m << 32
+		n := (m << 1) & zm
+		s.state[i] = n
+		m = q &^ m
+		q = zm & n
+		zm = zm ^ q ^ (q >> (1 << (i - 1)))
+	}
+}
+
+func (s *BitCompressUint64) Mask() uint64 { return s.state[0] }
+
+func (s *BitCompressUint64) Compress(x uint64) (r uint64) {
+	r = x & s.state[0]
+	q := r & s.state[1]
+	r ^= q ^ (q >> 1)
+	q = r & s.state[2]
+	r ^= q ^ (q >> 2)
+	q = r & s.state[3]
+	r ^= q ^ (q >> 4)
+	q = r & s.state[4]
+	r ^= q ^ (q >> 8)
+	q = r & s.state[5]
+	r ^= q ^ (q >> 16)
+	q = r & s.state[6]
+	r ^= q ^ (q >> 32)
+	return r
+}
