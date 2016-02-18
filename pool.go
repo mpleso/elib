@@ -27,3 +27,5 @@ func (p *Pool) PutIndex(i uint) (ok bool) {
 	}
 	return
 }
+
+func (p *Pool) IsFree(i uint) (ok bool) { return p.freeBitmap.Get(i) }

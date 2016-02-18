@@ -32,6 +32,10 @@ func (p * {{template "T" .ID}}) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
 }
 
+func (p * {{template "T" .ID}}) IsFree(i uint) (ok bool) {
+	return p.Pool.IsFree(i)
+}
+
 func (p * {{template "T" .ID}}) Resize(n int) {
 	c := Index(cap(p.{{.Data}}))
 	l := Index(len(p.{{.Data}}) + n)
