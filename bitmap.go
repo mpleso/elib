@@ -144,7 +144,11 @@ func (p *BitmapPool) Get(b Bitmap, x uint) (v bool) {
 		return b&m != 0
 	}
 	i, m := bitmapIndex(x)
-	return p.bitmaps[^b][i]&m != 0
+	bm := p.bitmaps[^b]
+	if i < uint(len(bm)) {
+		v = bm[i]&m != 0
+	}
+	return
 }
 
 func (b Bitmap) Get(x uint) bool {
