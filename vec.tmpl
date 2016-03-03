@@ -4,11 +4,13 @@
 //+build {{.TAGS}}
 {{end}}
 
+{{define "elib"}}{{if ne . "elib"}}elib.{{end}}{{end}}
+
 package {{.Package}}
 
 {{if ne .Package "elib"}}
 import (
-	. "github.com/platinasystems/elib"
+	"github.com/platinasystems/elib"
 )
 {{end}}
 
@@ -17,10 +19,10 @@ import (
 type {{template "T" .ID}} []{{.Type}}
 
 func (p * {{template "T" .ID}}) Resize(n uint) {
-	c := Index(cap(*p))
-	l := Index(len(*p)) + Index(n)
+	c := {{template "elib" .Package}}Index(cap(*p))
+	l := {{template "elib" .Package}}Index(len(*p)) + {{template "elib" .Package}}Index(n)
 	if l > c {
-		c = NextResizeCap(l)
+		c = {{template "elib" .Package}}NextResizeCap(l)
 		q := make([]{{.Type}}, l, c)
 		copy(q, *p)
 		*p = q
@@ -29,15 +31,15 @@ func (p * {{template "T" .ID}}) Resize(n uint) {
 }
 
 func (p * {{template "T" .ID}}) Validate(i uint) {
-	c := Index(cap(*p))
-	l := Index(i) + 1
+	c := {{template "elib" .Package}}Index(cap(*p))
+	l := {{template "elib" .Package}}Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
+		c = {{template "elib" .Package}}NextResizeCap(l)
 		q := make([]{{.Type}}, l, c)
 		copy(q, *p)
 		*p = q
 	}
-	if l > Index(len(*p)) {
+	if l > {{template "elib" .Package}}Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 }
