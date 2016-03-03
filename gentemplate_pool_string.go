@@ -4,7 +4,7 @@
 package elib
 
 type StringPool struct {
-	Pool    Pool
+	Pool
 	Strings StringVec
 }
 
@@ -19,6 +19,10 @@ func (p *StringPool) GetIndex() (i uint) {
 
 func (p *StringPool) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
+}
+
+func (p *StringPool) IsFree(i uint) (ok bool) {
+	return p.Pool.IsFree(i)
 }
 
 func (p *StringPool) Resize(n int) {
@@ -45,4 +49,8 @@ func (p *StringPool) Validate(i uint) {
 	if l > Index(len(p.Strings)) {
 		p.Strings = p.Strings[:l]
 	}
+}
+
+func (p *StringPool) Elts() int {
+	return len(p.Strings) - p.FreeLen()
 }
