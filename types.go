@@ -6,17 +6,17 @@ func NextResizeCap(x Index) Index {
 	return Index(MaxPow2(Word(x)))
 }
 
-//go:generate gentemplate -d Package=elib -id Byte  -d Type=byte vec.tmpl
+//go:generate gentemplate -d Package=elib -id Byte  -d VecType=ByteVec -d Type=byte vec.tmpl
 
-//go:generate gentemplate -d Package=elib -id String -d Type=string vec.tmpl
-//go:generate gentemplate -d Package=elib -id String -d Type=StringVec -d Data=Strings pool.tmpl
+//go:generate gentemplate -d Package=elib -id String -d VecType=StringVec -d Type=string vec.tmpl
+//go:generate gentemplate -d Package=elib -id String -d PoolType=StringPool -d Type=StringVec -d Data=Strings pool.tmpl
 
-//go:generate gentemplate -d Package=elib -id Int64 -d Type=int64 vec.tmpl
-//go:generate gentemplate -d Package=elib -id Int32 -d Type=int32 vec.tmpl
-//go:generate gentemplate -d Package=elib -id Int16 -d Type=int16 vec.tmpl
-//go:generate gentemplate -d Package=elib -id Int8  -d Type=int8  vec.tmpl
+//go:generate gentemplate -d Package=elib -id Int64 -d VecType=Int64Vec -d Type=int64 vec.tmpl
+//go:generate gentemplate -d Package=elib -id Int32 -d VecType=Int32Vec -d Type=int32 vec.tmpl
+//go:generate gentemplate -d Package=elib -id Int16 -d VecType=Int16Vec -d Type=int16 vec.tmpl
+//go:generate gentemplate -d Package=elib -id Int8  -d VecType=Int8Vec -d Type=int8  vec.tmpl
 
-//go:generate gentemplate -d Package=elib -id Uint64 -d Type=uint64 vec.tmpl
-//go:generate gentemplate -d Package=elib -id Uint32 -d Type=uint32 vec.tmpl
-//go:generate gentemplate -d Package=elib -id Uint16 -d Type=uint16 vec.tmpl
-//go:generate gentemplate -d Package=elib -id Uint8  -d Type=uint8  vec.tmpl
+//go:generate gentemplate -d Package=elib -id Uint64 -d VecType=Uint64Vec -d Type=uint64 vec.tmpl
+//go:generate gentemplate -d Package=elib -id Uint32 -d VecType=Uint32Vec -d Type=uint32 vec.tmpl
+//go:generate gentemplate -d Package=elib -id Uint16 -d VecType=Uint16Vec -d Type=uint16 vec.tmpl
+//go:generate gentemplate -d Package=elib -id Uint8  -d VecType=Uint8Vec -d Type=uint8  vec.tmpl

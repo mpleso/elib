@@ -14,11 +14,9 @@ import (
 )
 {{end}}
 
-{{define "T"}}{{.}}Vec{{end}}
+type {{.VecType}} []{{.Type}}
 
-type {{template "T" .ID}} []{{.Type}}
-
-func (p * {{template "T" .ID}}) Resize(n uint) {
+func (p * {{.VecType}}) Resize(n uint) {
 	c := {{template "elib" .Package}}Index(cap(*p))
 	l := {{template "elib" .Package}}Index(len(*p)) + {{template "elib" .Package}}Index(n)
 	if l > c {
@@ -30,7 +28,7 @@ func (p * {{template "T" .ID}}) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p * {{template "T" .ID}}) Validate(i uint) {
+func (p * {{.VecType}}) Validate(i uint) {
 	c := {{template "elib" .Package}}Index(cap(*p))
 	l := {{template "elib" .Package}}Index(i) + 1
 	if l > c {

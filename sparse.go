@@ -138,7 +138,7 @@ type randSparse struct {
 	sparse, dense Index
 }
 
-//go:generate gentemplate -d Package=elib -id randSparse -d Type=randSparse vec.tmpl
+//go:generate gentemplate -d Package=elib -id randSparse -d VecType=randSparseVec -d Type=randSparse vec.tmpl
 
 func SparseTest() {
 	t := testSparse{

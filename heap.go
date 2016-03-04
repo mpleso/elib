@@ -40,8 +40,8 @@ type freeElt struct {
 	elt Index
 }
 
-//go:generate gentemplate -d Package=elib -id freeElt -d Type=freeElt vec.tmpl
-//go:generate gentemplate -d Package=elib -id freeElts -d Type=freeEltVec vec.tmpl
+//go:generate gentemplate -d Package=elib -id freeElt -d VecType=freeEltVec -d Type=freeElt vec.tmpl
+//go:generate gentemplate -d Package=elib -id freeElts -d VecType=freeEltsVec -d Type=freeEltVec vec.tmpl
 
 type heapElt struct {
 	// Offset of this element in heap.

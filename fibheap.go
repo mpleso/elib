@@ -28,7 +28,7 @@ type fibNode struct {
 	isMarked bool
 }
 
-//go:generate gentemplate -d Package=elib -id fibNode -d Type=fibNode vec.tmpl
+//go:generate gentemplate -d Package=elib -id fibNode -d VecType=fibNodeVec -d Type=fibNode vec.tmpl
 
 const (
 	fibRootIndex = MaxIndex - 1

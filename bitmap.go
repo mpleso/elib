@@ -12,8 +12,8 @@ const bitmapBits = WordBits
 // Negative int64s are indices into pool of all known bitmaps
 type Bitmap Word
 
-//go:generate gentemplate -d Package=elib -id Bitmap -d Type=Bitmap vec.tmpl
-//go:generate gentemplate -d Package=elib -id Bitmaps -d Type=[]Bitmap vec.tmpl
+//go:generate gentemplate -d Package=elib -id Bitmap -d VecType=BitmapVec -d Type=Bitmap vec.tmpl
+//go:generate gentemplate -d Package=elib -id Bitmaps -d VecType=BitmapsVec -d Type=[]Bitmap vec.tmpl
 
 func (b Bitmap) isPoolIndex() bool {
 	if b>>(WordBits-1) != 0 { // sign bit
@@ -72,7 +72,7 @@ func bitmapMake(nBits uint) []Bitmap {
 	return make([]Bitmap, n)
 }
 
-//go:generate gentemplate -d Package=elib -id Bitmap -d Type=[]BitmapVec -d Data=bitmaps pool.tmpl
+//go:generate gentemplate -d Package=elib -id Bitmap -d PoolType=BitmapPool -d Type=[]BitmapVec -d Data=bitmaps pool.tmpl
 
 var Bitmaps = &BitmapPool{}
 
