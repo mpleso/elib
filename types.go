@@ -9,7 +9,7 @@ func NextResizeCap(x Index) Index {
 //go:generate gentemplate -d Package=elib -id Byte  -d VecType=ByteVec -d Type=byte vec.tmpl
 
 //go:generate gentemplate -d Package=elib -id String -d VecType=StringVec -d Type=string vec.tmpl
-//go:generate gentemplate -d Package=elib -id String -d PoolType=StringPool -d Type=StringVec -d Data=Strings pool.tmpl
+//go:generate gentemplate -d Package=elib -id String -d PoolType=StringPool -d Type=string -d Data=Strings pool.tmpl
 
 //go:generate gentemplate -d Package=elib -id Int64 -d VecType=Int64Vec -d Type=int64 vec.tmpl
 //go:generate gentemplate -d Package=elib -id Int32 -d VecType=Int32Vec -d Type=int32 vec.tmpl

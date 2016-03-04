@@ -16,7 +16,7 @@ import (
 
 type {{.PoolType}} struct {
 	{{template "elib" .Package}}Pool
-	{{.Data}} {{.Type}}
+	{{.Data}} []{{.Type}}
 }
 
 func (p * {{.PoolType}}) GetIndex() (i uint) {
@@ -41,7 +41,7 @@ func (p * {{.PoolType}}) Resize(n int) {
 	l := {{template "elib" .Package}}Index(len(p.{{.Data}}) + n)
 	if l > c {
 		c = {{template "elib" .Package}}NextResizeCap(l)
-		q := make({{.Type}}, l, c)
+		q := make([]{{.Type}}, l, c)
 		copy(q, p.{{.Data}})
 		p.{{.Data}} = q
 	}
@@ -53,7 +53,7 @@ func (p * {{.PoolType}}) Validate(i uint) {
 	l := {{template "elib" .Package}}Index(i) + 1
 	if l > c {
 		c = {{template "elib" .Package}}NextResizeCap(l)
-		q := make({{.Type}}, l, c)
+		q := make([]{{.Type}}, l, c)
 		copy(q, p.{{.Data}})
 		p.{{.Data}} = q
 	}

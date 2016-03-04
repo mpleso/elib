@@ -72,7 +72,7 @@ func bitmapMake(nBits uint) []Bitmap {
 	return make([]Bitmap, n)
 }
 
-//go:generate gentemplate -d Package=elib -id Bitmap -d PoolType=BitmapPool -d Type=[]BitmapVec -d Data=bitmaps pool.tmpl
+//go:generate gentemplate -d Package=elib -id Bitmap -d PoolType=BitmapPool -d Type=BitmapVec -d Data=bitmaps pool.tmpl
 
 var Bitmaps = &BitmapPool{}
 

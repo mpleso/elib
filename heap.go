@@ -36,9 +36,7 @@ func (heap *Heap) SetMaxLen(l int) {
 	heap.maxLen = Index(l)
 }
 
-type freeElt struct {
-	elt Index
-}
+type freeElt Index
 
 //go:generate gentemplate -d Package=elib -id freeElt -d VecType=freeEltVec -d Type=freeElt vec.tmpl
 //go:generate gentemplate -d Package=elib -id freeElts -d VecType=freeEltsVec -d Type=freeEltVec vec.tmpl
@@ -102,7 +100,7 @@ func (heap *Heap) freeElt(ei, size Index) {
 	}
 	heap.free.Validate(uint(size))
 	heap.elts[ei].free = Index(len(heap.free[size]))
-	heap.free[size] = append(heap.free[size], freeElt{ei})
+	heap.free[size] = append(heap.free[size], freeElt(ei))
 }
 
 var poison heapElt = heapElt{
@@ -118,10 +116,10 @@ func (heap *Heap) removeFreeElt(ei, size Index) {
 	if size >= Index(len(heap.free)) {
 		size = 0
 	}
-	if l := Index(len(heap.free[size])); fi < l && heap.free[size][fi].elt == ei {
+	if l := Index(len(heap.free[size])); fi < l && heap.free[size][fi] == freeElt(ei) {
 		if fi < l-1 {
-			gi := heap.free[size][l-1].elt
-			heap.free[size][fi].elt = gi
+			gi := heap.free[size][l-1]
+			heap.free[size][fi] = gi
 			heap.elts[gi].free = fi
 		}
 		heap.free[size] = heap.free[size][:l-1]
@@ -179,12 +177,12 @@ func (heap *Heap) get(sizeArg uint, size Index) (id Index, offset uint) {
 	// Quickly allocate from free list of given size.
 	if int(size) < len(heap.free) {
 		if l := len(heap.free[size]); l > 0 {
-			ei := heap.free[size][l-1].elt
+			ei := heap.free[size][l-1]
 			e := &heap.elts[ei]
 			heap.free[size] = heap.free[size][:l-1]
 			e.free = MaxIndex
 			offset = uint(e.offset)
-			id = ei
+			id = Index(ei)
 			return
 		}
 	}
@@ -193,7 +191,7 @@ func (heap *Heap) get(sizeArg uint, size Index) (id Index, offset uint) {
 	if len(heap.free) > 0 {
 		l := Index(len(heap.free[0]))
 		for fi := Index(0); fi < l; fi++ {
-			ei := heap.free[0][fi].elt
+			ei := heap.free[0][fi]
 			e := &heap.elts[ei]
 			es := heap.eltSize(e)
 			fs := int(es) - int(size)
@@ -201,18 +199,18 @@ func (heap *Heap) get(sizeArg uint, size Index) (id Index, offset uint) {
 				continue
 			}
 			if fi < l-1 {
-				gi := heap.free[0][l-1].elt
-				heap.free[0][fi].elt = gi
+				gi := heap.free[0][l-1]
+				heap.free[0][fi] = gi
 				heap.elts[gi].free = fi
 			}
 			heap.free[0] = heap.free[0][:l-1]
 
 			offset = uint(e.offset)
 			e.free = MaxIndex
-			id = ei
+			id = Index(ei)
 
 			if fs > 0 {
-				heap.freeAfter(ei, es, Index(fs))
+				heap.freeAfter(Index(ei), es, Index(fs))
 			}
 			return
 		}
@@ -316,12 +314,11 @@ func (heap *Heap) GetAligned(sizeArg, log2Alignment uint) (id Index, offset uint
 	return
 }
 
-func (heap *Heap) Put(ei Index) (err error) {
+func (heap *Heap) Put(ei Index) {
 	e := &heap.elts[ei]
 
 	if e.isFree() {
-		err = fmt.Errorf("duplicate free %d", ei)
-		return
+		panic(fmt.Errorf("duplicate free %d", ei))
 	}
 
 	// If previous element is free combine free elements.
@@ -361,8 +358,6 @@ func (heap *Heap) Put(ei Index) (err error) {
 
 	es := heap.size(ei)
 	heap.freeElt(ei, es)
-
-	return
 }
 
 func (heap *Heap) String() (s string) {

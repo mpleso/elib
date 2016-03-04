@@ -16,7 +16,7 @@ func main() {
 	if false {
 		elib.FibHeapTest()
 	}
-	if true {
+	if false {
 		{
 			b := elib.Bitmap(0)
 			b = b.Set(64)

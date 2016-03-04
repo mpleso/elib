@@ -85,7 +85,7 @@ func (p *Heap) validate() (err error) {
 				err = fmt.Errorf("free %d >= len free[%d] %d, size %d %+v", e.free, size, len(p.free[size]), p.size(ei), e)
 				return
 			}
-			if ei != p.free[size][e.free].elt {
+			if ei != Index(p.free[size][e.free]) {
 				err = fmt.Errorf("corrupt free list %d != free[%d][%d] %d", ei, size, e.free, p.free[size][e.free])
 				return
 			}
@@ -181,7 +181,7 @@ type randHeapObj struct {
 	align  uint
 }
 
-//go:generate gentemplate -d Package=elib -id randHeapObj -tags debug -d Type=randHeapObj vec.tmpl
+//go:generate gentemplate -d Package=elib -id randHeapObj -d VecType=randHeapObjVec -tags debug -d Type=randHeapObj vec.tmpl
 
 func (t *testHeap) validate(iter int) (err error) {
 	if t.validateEvery != 0 && iter%int(t.validateEvery) == 0 {
@@ -221,10 +221,7 @@ func runHeapTest(t *testHeap) (err error) {
 				err = fmt.Errorf("len mismatch %d != %d", l, o.len)
 				return
 			}
-			err = p.Put(o.id)
-			if err != nil {
-				return
-			}
+			p.Put(o.id)
 			o.len = 0
 		} else {
 			o.len = 1 + uint(rand.Int()&(1<<uint(t.log2MaxLen)-1))
