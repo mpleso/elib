@@ -36,9 +36,9 @@ func (p * {{.PoolType}}) IsFree(i uint) (ok bool) {
 	return p.Pool.IsFree(i)
 }
 
-func (p * {{.PoolType}}) Resize(n int) {
+func (p * {{.PoolType}}) Resize(n uint) {
 	c := {{template "elib" .Package}}Index(cap(p.{{.Data}}))
-	l := {{template "elib" .Package}}Index(len(p.{{.Data}}) + n)
+	l := {{template "elib" .Package}}Index(len(p.{{.Data}}) + int(n))
 	if l > c {
 		c = {{template "elib" .Package}}NextResizeCap(l)
 		q := make([]{{.Type}}, l, c)

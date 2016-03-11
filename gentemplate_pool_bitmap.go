@@ -25,9 +25,9 @@ func (p *BitmapPool) IsFree(i uint) (ok bool) {
 	return p.Pool.IsFree(i)
 }
 
-func (p *BitmapPool) Resize(n int) {
+func (p *BitmapPool) Resize(n uint) {
 	c := Index(cap(p.bitmaps))
-	l := Index(len(p.bitmaps) + n)
+	l := Index(len(p.bitmaps) + int(n))
 	if l > c {
 		c = NextResizeCap(l)
 		q := make([]BitmapVec, l, c)

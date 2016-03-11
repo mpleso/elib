@@ -25,9 +25,9 @@ func (p *StringPool) IsFree(i uint) (ok bool) {
 	return p.Pool.IsFree(i)
 }
 
-func (p *StringPool) Resize(n int) {
+func (p *StringPool) Resize(n uint) {
 	c := Index(cap(p.Strings))
-	l := Index(len(p.Strings) + n)
+	l := Index(len(p.Strings) + int(n))
 	if l > c {
 		c = NextResizeCap(l)
 		q := make([]string, l, c)
