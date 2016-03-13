@@ -1,11 +1,20 @@
 package elib
 
+import (
+	"errors"
+)
+
 type Pool struct {
 	// Vector of free indices
 	freeIndices []uint32 // Uint32Vec
 	// Bitmap of free indices
 	freeBitmap Bitmap
+	// Non-zero to limit size of pool.
+	maxLen uint
 }
+
+// ErrTooLarge is passed to panic if pool overflows maxLen
+var ErrPoolTooLarge = errors.New("pool: too large")
 
 // Get first free pool index if available.
 func (p *Pool) GetIndex(max uint) (i uint) {
@@ -15,6 +24,9 @@ func (p *Pool) GetIndex(max uint) (i uint) {
 		i = uint(p.freeIndices[l-1])
 		p.freeIndices = p.freeIndices[:l-1]
 		p.freeBitmap = p.freeBitmap.AndNotx(i)
+	}
+	if p.maxLen != 0 && i >= p.maxLen {
+		panic(ErrPoolTooLarge)
 	}
 	return
 }
@@ -30,3 +42,5 @@ func (p *Pool) PutIndex(i uint) (ok bool) {
 
 func (p *Pool) IsFree(i uint) (ok bool) { return p.freeBitmap.Get(i) }
 func (p *Pool) FreeLen() int            { return len(p.freeIndices) }
+func (p *Pool) MaxLen() uint            { return p.maxLen }
+func (p *Pool) SetMaxLen(x uint)        { p.maxLen = x }

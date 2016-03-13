@@ -88,3 +88,8 @@ func (p *TypedPool) Data(i TypedPoolIndex) (t TypedPoolType, x unsafe.Pointer) {
 	x = unsafe.Pointer(&p.object_data[j])
 	return
 }
+
+func (p *TypedPool) IsFree(i uint) (ok bool) { return p.pool.IsFree(i) }
+func (p *TypedPool) FreeLen() int            { return p.pool.FreeLen() }
+func (p *TypedPool) MaxLen() uint            { return p.pool.MaxLen() }
+func (p *TypedPool) SetMaxLen(x uint)        { p.pool.SetMaxLen(x) }
