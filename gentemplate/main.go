@@ -19,14 +19,23 @@ type Config struct {
 	OutFile   string
 	UniqueID  string
 	BuildTags string
-	Vars      map[string]string
+	Vars      map[string]interface{}
+}
+
+func (c *Config) SetVar(v, x string) {
+	l := len(x)
+	if l > 1 && x[0] == '{' && x[l-1] == '}' {
+		c.Vars[v] = strings.Split(x[1:l-1], ",")
+	} else {
+		c.Vars[v] = x
+	}
 }
 
 func (c *Config) Set(opt string) (err error) {
 	e := strings.Split(opt, "=")
 	switch len(e) {
 	case 2:
-		c.Vars[e[0]] = e[1]
+		c.SetVar(e[0], e[1])
 	default:
 		err = fmt.Errorf("bad define: " + opt)
 	}
@@ -39,7 +48,7 @@ func (c *Config) String() string { return fmt.Sprintf("%v", c.Vars) }
 
 func main() {
 	c := &Config{}
-	c.Vars = make(map[string]string)
+	c.Vars = make(map[string]interface{})
 
 	flag.StringVar(&c.OutFile, "o", "", "Output file (- for stdout)")
 	flag.StringVar(&c.UniqueID, "id", "", "Unique name")
