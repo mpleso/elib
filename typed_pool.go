@@ -22,6 +22,9 @@ type TypedPool struct {
 	poison_zero_buf [128]byte
 }
 
+type TypedPoolIndex uint32
+type TypedPoolType uint32
+
 func (p *TypedPool) Init(args ...interface{}) {
 	for i := range args {
 		if x := uint32(reflect.TypeOf(args[i]).Size()); x > p.object_size {
@@ -42,40 +45,46 @@ func (p *TypedPool) Init(args ...interface{}) {
 	}
 }
 
-func (p *TypedPool) GetIndex(typ uint) (i uint) {
-	i = p.pool.GetIndex(uint(len(p.object_types)))
-	p.object_types.Validate(i)
+func (p *TypedPool) IsInitialized() bool { return p.object_size != 0 }
+
+func (p *TypedPool) GetIndex(typ TypedPoolType) (i TypedPoolIndex) {
+	i = TypedPoolIndex(p.pool.GetIndex(uint(len(p.object_types))))
+	p.object_types.Validate(uint(i))
 	p.object_types[i] = byte(typ)
-	j := uint32(i) * p.object_size
-	p.object_data.Validate(uint(j + p.object_size - 1))
-	copy(p.object_data[j:j+p.object_size], p.zero)
+	s := uint(p.object_size)
+	j := uint(i) * s
+	p.object_data.Validate(uint(j + s - 1))
+	copy(p.object_data[j:j+s], p.zero)
 	return
 }
 
-func (p *TypedPool) PutIndex(t, i uint) (ok bool) {
+func (p *TypedPool) PutIndex(t TypedPoolType, i TypedPoolIndex) (ok bool) {
 	ok = p.object_types[i] == byte(t)
 	if !ok {
 		return
 	}
-	ok = p.pool.PutIndex(i)
+	ok = p.pool.PutIndex(uint(i))
 	if !ok {
 		return
 	}
 	p.object_types[i] = 0
-	j := uint32(i) * p.object_size
-	copy(p.object_data[j:j+p.object_size], p.poison)
+	s := uint(p.object_size)
+	j := uint(i) * s
+	copy(p.object_data[j:j+s], p.poison)
 	return
 }
 
-func (p *TypedPool) GetData(t, i uint) unsafe.Pointer {
-	if want := uint(p.object_types[i]); want != t {
+func (p *TypedPool) GetData(t TypedPoolType, i TypedPoolIndex) unsafe.Pointer {
+	if want := TypedPoolType(p.object_types[i]); want != t {
 		panic(fmt.Errorf("wrong type want %d != got %d", want, t))
 	}
 	return unsafe.Pointer(&p.object_data[uint32(i)*p.object_size])
 }
 
-func (p *TypedPool) Data(i uint) (t uint, x unsafe.Pointer) {
-	t = uint(p.object_types[i])
-	x = unsafe.Pointer(&p.object_data[uint32(i)*p.object_size])
+func (p *TypedPool) Data(i TypedPoolIndex) (t TypedPoolType, x unsafe.Pointer) {
+	t = TypedPoolType(p.object_types[i])
+	s := uint(p.object_size)
+	j := uint(i) * s
+	x = unsafe.Pointer(&p.object_data[j])
 	return
 }
