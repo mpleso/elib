@@ -2,7 +2,7 @@
 package elog
 
 import (
-	"github.com/platinasystems/elib"
+	"github.com/platinasystems/elib/cpu"
 
 	"bytes"
 	"errors"
@@ -19,11 +19,8 @@ const (
 	EventDataBytes = 1<<log2EventBytes - (8 + 2*2)
 )
 
-// Event time stamp (CPU clock cycles when gathered)
-type Time uint64
-
 type Event struct {
-	timestamp Time
+	timestamp cpu.Time
 
 	typeIndex uint16
 	track     uint16
@@ -50,7 +47,7 @@ type EventType struct {
 
 type shared struct {
 	// Timestamp when log was created.
-	cpuStartTime Time
+	cpuStartTime cpu.Time
 
 	StartTime time.Time
 
@@ -138,7 +135,7 @@ func (b *Buffer) Add(t *EventType) *Event {
 		return &b.disabledEvent
 	}
 	e := b.getEvent()
-	e.timestamp = Now()
+	e.timestamp = cpu.TimeNow()
 	e.typeIndex = uint16(t.index)
 	return e
 }
@@ -203,18 +200,17 @@ func New(log2Len uint) (b *Buffer) {
 	}
 	b.events = make([]Event, 1<<log2Len)
 	b.log2Len = log2Len
-	b.cpuStartTime = Now()
+	b.cpuStartTime = cpu.TimeNow()
 	b.StartTime = time.Now()
 	return
 }
 
-func Now() Time { return Time(elib.Timestamp()) }
-
 func (s *shared) timeUnitNsecs() (u float64) {
 	u = s.timeUnitNsec
 	if u == 0 {
-		elib.CPUTimeInit()
-		s.timeUnitNsec = 1e9 / elib.CPUCyclesPerSec()
+		var c cpu.Time
+		c.Cycles(1 * cpu.Second)
+		s.timeUnitNsec = 1e9 / float64(c)
 		u = s.timeUnitNsec
 	}
 	return

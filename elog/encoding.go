@@ -2,6 +2,7 @@ package elog
 
 import (
 	"github.com/platinasystems/elib"
+	"github.com/platinasystems/elib/cpu"
 
 	"encoding/binary"
 	"encoding/gob"
@@ -39,7 +40,7 @@ func (v *View) Restore(r io.Reader) (err error) {
 func (e *Event) EncodeData(b []byte) int { return e.getType().Encode(b, e) }
 func (e *Event) DecodeData(b []byte) int { return e.getType().Decode(b, e) }
 
-func (e *Event) encode(b0 elib.ByteVec, eType uint16, t0 Time, i0 int) (b elib.ByteVec, t Time, i int) {
+func (e *Event) encode(b0 elib.ByteVec, eType uint16, t0 cpu.Time, i0 int) (b elib.ByteVec, t cpu.Time, i int) {
 	b, i = b0, i0
 	b.Validate(uint(i + 1<<log2EventBytes))
 	// Encode time differences for shorter encodings.
@@ -55,7 +56,7 @@ var (
 	errUnderflow = errors.New("decode buffer underflow")
 )
 
-func (e *Event) decode(b elib.ByteVec, typeMap elib.Uint16Vec, t0 Time, i0 int) (t Time, i int, err error) {
+func (e *Event) decode(b elib.ByteVec, typeMap elib.Uint16Vec, t0 cpu.Time, i0 int) (t cpu.Time, i int, err error) {
 	i, t = i0, t0
 	var (
 		x uint64
@@ -65,7 +66,7 @@ func (e *Event) decode(b elib.ByteVec, typeMap elib.Uint16Vec, t0 Time, i0 int) 
 	if x, n = binary.Uvarint(b[i:]); n <= 0 {
 		goto short
 	}
-	t += Time(x)
+	t += cpu.Time(x)
 	e.timestamp = t
 	i += n
 
@@ -158,7 +159,7 @@ func (view *View) UnmarshalBinary(b []byte) (err error) {
 	i += 8
 
 	if x, n := binary.Uvarint(b[i:]); n > 0 {
-		view.cpuStartTime = Time(x)
+		view.cpuStartTime = cpu.Time(x)
 		i += n
 	} else {
 		return errUnderflow
