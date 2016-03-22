@@ -1,5 +1,5 @@
-// func Timestamp() uint64
-TEXT ·Timestamp(SB),$0-0
+// func TimeNow() uint64
+TEXT ·TimeNow(SB),$0-0
         RDTSC
 	SHLQ $32, DX
 	ADDQ DX, AX

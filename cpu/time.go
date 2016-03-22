@@ -1,4 +1,4 @@
-package elib
+package cpu
 
 import (
 	"math"
@@ -6,53 +6,56 @@ import (
 	"time"
 )
 
+const (
+	Second      float64 = 1
+	Minute              = 60 * Second
+	Hour                = 60 * Minute
+	Day                 = 24 * Hour
+	Microsecond         = 1e-6 * Second
+	Millisecond         = 1e-3 * Second
+)
+
+type Time uint64
+
 var (
 	// Ticks per second of event timer (and inverse).
 	cyclesPerSec, secsPerCycle float64
 	cyclesOnce                 sync.Once
 )
 
-func CPUTimeInit() {
-	cyclesOnce.Do(func() {
-		go estimateFrequency(1e-3, 1e6, 1e4)
-	})
+func (dt Time) Seconds() float64 {
+	estimateOnce()
+	return float64(dt) * secsPerCycle
 }
 
-func CPUCyclesPerSec() float64 {
-	// Wait until estimateFrequency is done.
-	for cyclesPerSec == 0 {
-	}
-	return cyclesPerSec
-}
-
-func CPUSecsPerCycle() float64 {
-	// Wait until estimateFrequency is done.
-	for secsPerCycle == 0 {
-	}
-	return secsPerCycle
-}
-
-func CPUSecPerCycle() float64 {
-	// Wait until estimateFrequency is done.
-	for cyclesPerSec == 0 {
-	}
-	return cyclesPerSec
+func (t *Time) Cycles(dt float64) {
+	estimateOnce()
+	*t = Time(dt * cyclesPerSec)
 }
 
 func measureCPUCyclesPerSec(wait float64) (freq float64) {
-	var t0 [2]uint64
+	var t0 [2]Time
 	var t1 [2]int64
 	t1[0] = time.Now().UnixNano()
-	t0[0] = Timestamp()
+	t0[0] = TimeNow()
 	time.Sleep(time.Duration(1e9 * wait))
 	t1[1] = time.Now().UnixNano()
-	t0[1] = Timestamp()
+	t0[1] = TimeNow()
 	freq = 1e9 * float64(t0[1]-t0[0]) / float64(t1[1]-t1[0])
 	return
 }
 
 func round(x, unit float64) float64 {
 	return unit * math.Floor(.5+x/unit)
+}
+
+func estimateOnce() {
+	cyclesOnce.Do(func() {
+		go estimateFrequency(1e-3, 1e6, 1e4)
+	})
+	// Wait until estimateFrequency is done.
+	for secsPerCycle == 0 {
+	}
 }
 
 func estimateFrequency(dt, unit, tolerance float64) {
