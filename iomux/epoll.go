@@ -68,7 +68,7 @@ func (m *Mux) validate() {
 	})
 }
 
-func event(f Interface, l *File) (e epollEvent) {
+func event(f Filer, l *File) (e epollEvent) {
 	e.mask = eventRead
 	if f.WriteAvailable() {
 		e.mask |= eventWrite
@@ -78,7 +78,7 @@ func event(f Interface, l *File) (e epollEvent) {
 }
 
 // Add adds a file to the file poller, certainly for read and possibly for write depending on f.WriteReady()
-func (m *Mux) Add(f Interface) {
+func (m *Mux) Add(f Filer) {
 	m.poolLock.Lock()
 	defer m.poolLock.Unlock()
 	m.validate()
@@ -88,8 +88,8 @@ func (m *Mux) Add(f Interface) {
 		panic(fmt.Errorf("setnonblock: %s", err))
 	}
 
-	fi := m.pool.GetIndex()
-	m.pool.files[fi] = f
+	fi := m.filePool.GetIndex()
+	m.files[fi] = f
 	l.poolIndex = fi
 
 	e := event(f, l)
@@ -99,7 +99,7 @@ func (m *Mux) Add(f Interface) {
 }
 
 // Del removes the file (descriptor) from polling and frees file pool entry.
-func (m *Mux) Del(f Interface) {
+func (m *Mux) Del(f Filer) {
 	m.poolLock.Lock()
 	defer m.poolLock.Unlock()
 	l := f.GetFile()
@@ -109,12 +109,12 @@ func (m *Mux) Del(f Interface) {
 	fi := l.poolIndex
 	// Poison index.
 	l.poolIndex = ^uint(0)
-	m.pool.PutIndex(fi)
-	m.pool.files[fi] = nil
+	m.filePool.PutIndex(fi)
+	m.files[fi] = nil
 }
 
 // Update is needed when f.WriteReady() changes value.
-func (m *Mux) Update(f Interface) {
+func (m *Mux) Update(f Filer) {
 	m.poolLock.Lock()
 	defer m.poolLock.Unlock()
 	l := f.GetFile()
@@ -135,24 +135,21 @@ func (m *Mux) Wait(secs float64) {
 		}
 		for i := 0; i < n; i++ {
 			fi := es[i].data[0]
-			m.poolLock.Lock()
-			f := m.pool.files[fi]
-			m.poolLock.Unlock()
 			em := es[i].mask
 			if em&eventWrite != 0 {
-				err := f.WriteReady()
+				err := m.files[fi].WriteReady()
 				if err != nil {
 					panic(err)
 				}
 			}
 			if em&eventRead != 0 {
-				err := f.ReadReady()
+				err := m.files[fi].ReadReady()
 				if err != nil {
 					panic(err)
 				}
 			}
 			if em&eventError != 0 {
-				f.ErrorReady()
+				m.files[fi].ErrorReady()
 			}
 		}
 	}
