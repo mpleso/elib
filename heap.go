@@ -32,7 +32,7 @@ type Heap struct {
 	maxLen Index
 }
 
-func (heap *Heap) SetMaxLen(l int) {
+func (heap *Heap) SetMaxLen(l uint) {
 	heap.maxLen = Index(l)
 }
 
