@@ -6,6 +6,7 @@ import (
 
 	"fmt"
 	"sync"
+	"syscall"
 )
 
 type server struct {
@@ -91,11 +92,15 @@ func (c *client) Close() (err error) {
 	return
 }
 
-func (c *Main) AddServer(config string) (err error) {
-	svr := &server{main: c, verbose: true}
-	err = svr.Config(config, socket.Listen)
+func (c *Main) AddStdin() {
+	c.AddFile(iomux.NewFileBuf(syscall.Stdin))
+}
+
+func (c *Main) AddServer(config string) {
+	svr := &server{main: c}
+	err := svr.Config(config, socket.Listen)
 	if err != nil {
-		return
+		panic(err)
 	}
 	iomux.Add(svr)
 	c.servers = append(c.servers, svr)

@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"io"
 	"sort"
 )
 
@@ -15,9 +14,9 @@ type quitCmd struct{}
 
 var ErrQuit = errors.New("Quit")
 
-func (c *quitCmd) Name() string                            { return "quit" }
-func (c *quitCmd) Action(w io.Writer, args []string) error { return ErrQuit }
-func init()                                                { addBuiltin(&quitCmd{}) }
+func (c *quitCmd) Name() string                         { return "quit" }
+func (c *quitCmd) Action(w Writer, args []string) error { return ErrQuit }
+func init()                                             { addBuiltin(&quitCmd{}) }
 
 type cmds []Command
 
@@ -35,7 +34,7 @@ func (c *helpCmd) LoopStart(m *Main) {
 	}
 	sort.Sort(c.cmds)
 }
-func (c *helpCmd) Action(w io.Writer, args []string) (err error) {
+func (c *helpCmd) Action(w Writer, args []string) (err error) {
 	for _, c := range c.cmds {
 		fmt.Fprintf(w, "%v\n", c.Name())
 	}

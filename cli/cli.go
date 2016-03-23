@@ -9,9 +9,13 @@ import (
 	"sync"
 )
 
+type Writer interface {
+	io.Writer
+}
+
 type Command interface {
 	Name() string
-	Action(w io.Writer, args []string) error
+	Action(w Writer, args []string) error
 }
 
 type Helper interface {
@@ -175,7 +179,7 @@ func (m *Main) lookup(args []string) (Command, []string, error) {
 	return nil, nil, nil
 }
 
-func (m *Main) Exec(w io.Writer, args []string) error {
+func (m *Main) Exec(w Writer, args []string) error {
 	c, a, err := m.lookup(args)
 	if err == nil {
 		err = c.Action(w, a)
@@ -183,7 +187,7 @@ func (m *Main) Exec(w io.Writer, args []string) error {
 	return err
 }
 
-var defaultMain = &Main{}
+var Default = &Main{}
 
-func AddCommand(c Command)                  { defaultMain.AddCommand(c) }
-func Exec(w io.Writer, args []string) error { return defaultMain.Exec(w, args) }
+func AddCommand(c Command)               { Default.AddCommand(c) }
+func Exec(w Writer, args []string) error { return Default.Exec(w, args) }
