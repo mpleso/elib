@@ -6,7 +6,6 @@ import (
 
 	"fmt"
 	"sync"
-	"syscall"
 )
 
 type server struct {
@@ -90,10 +89,6 @@ func (c *client) Close() (err error) {
 	}
 	c.done("requested-close")
 	return
-}
-
-func (c *Main) AddStdin() {
-	c.AddFile(iomux.NewFileBuf(syscall.Stdin))
 }
 
 func (c *Main) AddServer(config string) {

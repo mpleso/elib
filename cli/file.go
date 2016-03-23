@@ -62,6 +62,10 @@ func (c *Main) AddFile(f iomux.FileReadWriteCloser) {
 	x.writePrompt()
 }
 
+func (c *Main) AddStdin() {
+	c.AddFile(iomux.NewFileBuf(syscall.Stdin))
+}
+
 func (f *File) isStdin() bool {
 	if f, ok := f.FileReadWriteCloser.(*iomux.FileBuf); ok {
 		return f.Fd == syscall.Stdin
@@ -79,6 +83,16 @@ func (c *Main) Loop() {
 			l.LoopStart(c)
 		}
 	}
+
+	defer func() {
+		// Restore Stdin to blocking on exit.
+		for i := range c.Files {
+			if !c.FilePool.IsFree(uint(i)) && c.Files[i].isStdin() {
+				syscall.SetNonblock(syscall.Stdin, false)
+			}
+		}
+	}()
+
 	for err != ErrQuit {
 		i := <-c.RxReady
 		err = c.Files[i].rxReady()
