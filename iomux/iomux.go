@@ -34,7 +34,7 @@ type Filer interface {
 
 var DefaultMux = &Mux{}
 
-func Add(f Filer)       { DefaultMux.Add(f) }
-func Del(f Filer)       { DefaultMux.Del(f) }
-func Update(f Filer)    { DefaultMux.Update(f) }
-func Wait(secs float64) { DefaultMux.Wait(secs) }
+func Add(f Filer)    { DefaultMux.Add(f) }
+func Del(f Filer)    { DefaultMux.Del(f) }
+func Update(f Filer) { DefaultMux.Update(f) }
+func Wait()          { DefaultMux.Wait() }

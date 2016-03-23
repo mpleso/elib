@@ -3,6 +3,9 @@
 package iomux
 
 import (
+	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/elib/event"
+
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -58,7 +61,7 @@ func epoll_create1(flag int) (fd int, err error) {
 	return
 }
 
-func (m *Mux) validate() {
+func (m *Mux) maybe_epoll_create() {
 	m.once.Do(func() {
 		var err error
 		m.fd, err = epoll_create1(0)
@@ -68,7 +71,7 @@ func (m *Mux) validate() {
 	})
 }
 
-func event(f Filer, l *File) (e epollEvent) {
+func (l *File) event(f Filer) (e epollEvent) {
 	e.mask = eventRead
 	if f.WriteAvailable() {
 		e.mask |= eventWrite
@@ -81,7 +84,7 @@ func event(f Filer, l *File) (e epollEvent) {
 func (m *Mux) Add(f Filer) {
 	m.poolLock.Lock()
 	defer m.poolLock.Unlock()
-	m.validate()
+	m.maybe_epoll_create()
 	l := f.GetFile()
 	fd := l.Fd
 	if err := syscall.SetNonblock(fd, true); err != nil {
@@ -92,7 +95,7 @@ func (m *Mux) Add(f Filer) {
 	m.files[fi] = f
 	l.poolIndex = fi
 
-	e := event(f, l)
+	e := l.event(f)
 	if err := epoll_ctl(m.fd, opAdd, fd, &e); err != nil {
 		panic(fmt.Errorf("epoll_ctl: add %s", err))
 	}
@@ -118,15 +121,48 @@ func (m *Mux) Update(f Filer) {
 	m.poolLock.Lock()
 	defer m.poolLock.Unlock()
 	l := f.GetFile()
-	e := event(f, l)
+	e := l.event(f)
 	if err := epoll_ctl(m.fd, opMod, l.Fd, &e); err != nil {
 		panic(fmt.Errorf("epoll_ctl: mod %s", err))
 	}
 }
 
-func (m *Mux) Wait(secs float64) {
+type muxEvent struct {
+	epollEvent
+	*Mux
+}
+
+func (e *muxEvent) EventAction(now cpu.Time) {
+	m := e.Mux
+	fi := e.data[0]
+	em := e.mask
+
+	// Deleted file?
+	if m.files[fi] == nil {
+		return
+	}
+
+	if em&eventWrite != 0 {
+		err := m.files[fi].WriteReady()
+		if err != nil {
+			panic(err)
+		}
+	}
+	if em&eventRead != 0 {
+		err := m.files[fi].ReadReady()
+		if err != nil {
+			panic(err)
+		}
+	}
+	if em&eventError != 0 {
+		m.files[fi].ErrorReady()
+	}
+}
+
+func (m *Mux) wait(c chan event.Interface) {
 	var events [256]epollEvent
-	m.validate()
+	m.maybe_epoll_create()
+	secs := float64(-1)
 	for {
 		es := events[:]
 		n, err := epoll_pwait(m.fd, es, secs)
@@ -134,23 +170,16 @@ func (m *Mux) Wait(secs float64) {
 			panic(fmt.Errorf("epoll_pwait %s", err))
 		}
 		for i := 0; i < n; i++ {
-			fi := es[i].data[0]
-			em := es[i].mask
-			if em&eventWrite != 0 {
-				err := m.files[fi].WriteReady()
-				if err != nil {
-					panic(err)
-				}
-			}
-			if em&eventRead != 0 {
-				err := m.files[fi].ReadReady()
-				if err != nil {
-					panic(err)
-				}
-			}
-			if em&eventError != 0 {
-				m.files[fi].ErrorReady()
+			me := &muxEvent{Mux: m, epollEvent: es[i]}
+			if c != nil {
+				c <- me
+			} else {
+				me.EventAction(0)
 			}
 		}
 	}
 }
+
+func (m *Mux) Wait() { m.wait(nil) }
+
+func (m *Mux) EventWait(c chan event.Interface) { m.wait(c) }
