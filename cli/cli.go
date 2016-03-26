@@ -13,18 +13,34 @@ type Writer interface {
 	io.Writer
 }
 
-type Command interface {
-	Name() string
-	Action(w Writer, args []string) error
+type Commander interface {
+	CliName() string
+	CliAction(w Writer, args []string) error
 }
 
 type Helper interface {
-	Help() string
+	CliHelp() string
+}
+
+type ShortHelper interface {
+	CliShortHelp() string
 }
 
 type LoopStarter interface {
-	LoopStart(m *Main)
+	CliLoopStart(m *Main)
 }
+
+type Command struct {
+	// Command name separated by space; alias by commas.
+	Name            string
+	ShortHelp, Help string
+	Action          func(c Commander, w Writer, args []string)
+}
+
+func (c *Command) CliName() string                               { return c.Name }
+func (c *Command) CliShortHelp() string                          { return c.ShortHelp }
+func (c *Command) CliHelp() string                               { return c.Help }
+func (c *Command) CliAction(w Writer, args []string) (err error) { c.Action(c, w, args); return }
 
 type command struct {
 	name  string
@@ -33,7 +49,7 @@ type command struct {
 
 type subCommand struct {
 	name string
-	cmds map[string]Command
+	cmds map[string]Commander
 	subs map[string]*subCommand
 }
 
@@ -52,7 +68,7 @@ type fileIndex uint
 type Main struct {
 	// Root of command tree.
 	rootCmd subCommand
-	allCmds map[string]Command
+	allCmds map[string]Commander
 	Prompt  string
 	RxReady chan fileIndex
 	FilePool
@@ -62,12 +78,18 @@ type Main struct {
 
 func normalizeName(n string) string { return strings.ToLower(n) }
 
-func (m *Main) addCommand(C Command) {
-	c := &command{}
-	c.name = C.Name()
+func (m *Main) AddCommand(C Commander) {
+	ns := strings.Split(C.CliName(), ",")
+	for i := range ns {
+		m.addCommand(C, ns[i])
+	}
+}
+
+func (m *Main) addCommand(C Commander, name string) {
+	c := &command{name: name}
 
 	if m.allCmds == nil {
-		m.allCmds = make(map[string]Command)
+		m.allCmds = make(map[string]Commander)
 	}
 	m.allCmds[c.name] = C
 
@@ -97,25 +119,16 @@ func (m *Main) addCommand(C Command) {
 			sub = x
 		} else {
 			if sub.cmds == nil {
-				sub.cmds = make(map[string]Command)
+				sub.cmds = make(map[string]Commander)
 			}
 			sub.cmds[name] = C
 		}
 	}
 }
 
-func (m *Main) AddCommand(c Command) {
-	m.initOnce.Do(func() {
-		for _, c := range builtins {
-			m.addCommand(c)
-		}
-	})
-	m.addCommand(c)
-}
-
-func (sub *subCommand) uniqueCommand(matching string) (Command, bool) {
+func (sub *subCommand) uniqueCommand(matching string) (Commander, bool) {
 	n := 0
-	var c Command
+	var c Commander
 	for k, v := range sub.cmds {
 		if strings.Index(k, matching) == 0 {
 			c = v
@@ -145,7 +158,7 @@ func (sub *subCommand) uniqueSubCommand(matching string) (*subCommand, bool) {
 	return c, ok
 }
 
-func (m *Main) lookup(args []string) (Command, []string, error) {
+func (m *Main) lookup(args []string) (Commander, []string, error) {
 	sub := &m.rootCmd
 	n := len(args)
 	for i := 0; i < n; i++ {
@@ -182,12 +195,12 @@ func (m *Main) lookup(args []string) (Command, []string, error) {
 func (m *Main) Exec(w Writer, args []string) error {
 	c, a, err := m.lookup(args)
 	if err == nil {
-		err = c.Action(w, a)
+		err = c.CliAction(w, a)
 	}
 	return err
 }
 
 var Default = &Main{}
 
-func AddCommand(c Command)               { Default.AddCommand(c) }
+func AddCommand(c Commander)             { Default.AddCommand(c) }
 func Exec(w Writer, args []string) error { return Default.Exec(w, args) }

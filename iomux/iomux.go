@@ -1,6 +1,8 @@
 package iomux
 
 import (
+	"github.com/platinasystems/elib/event"
+
 	"sync"
 )
 
@@ -34,7 +36,8 @@ type Filer interface {
 
 var DefaultMux = &Mux{}
 
-func Add(f Filer)    { DefaultMux.Add(f) }
-func Del(f Filer)    { DefaultMux.Del(f) }
-func Update(f Filer) { DefaultMux.Update(f) }
-func Wait()          { DefaultMux.Wait() }
+func Add(f Filer)                 { DefaultMux.Add(f) }
+func Del(f Filer)                 { DefaultMux.Del(f) }
+func Update(f Filer)              { DefaultMux.Update(f) }
+func Wait()                       { DefaultMux.Wait() }
+func EventWait(v *event.ActorVec) { DefaultMux.EventWait(v) }

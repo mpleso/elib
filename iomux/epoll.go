@@ -159,27 +159,34 @@ func (e *muxEvent) EventAction(now cpu.Time) {
 	}
 }
 
-func (m *Mux) wait(c chan event.Interface) {
+func (m *Mux) wait(v *event.ActorVec) {
 	var events [256]epollEvent
 	m.maybe_epoll_create()
 	secs := float64(-1)
-	for {
-		es := events[:]
-		n, err := epoll_pwait(m.fd, es, secs)
-		if err != nil {
-			panic(fmt.Errorf("epoll_pwait %s", err))
+	es := events[:]
+	n, err := epoll_pwait(m.fd, es, secs)
+	if err != nil {
+		panic(fmt.Errorf("epoll_pwait %s", err))
+	}
+	if v != nil {
+		if n > 0 {
+			v.Validate(uint(n - 1))
 		}
-		for i := 0; i < n; i++ {
-			me := &muxEvent{Mux: m, epollEvent: es[i]}
-			if c != nil {
-				c <- me
-			} else {
-				me.EventAction(0)
-			}
+		*v = (*v)[:n]
+	}
+	for i := 0; i < n; i++ {
+		me := muxEvent{Mux: m, epollEvent: es[i]}
+		if v != nil {
+			(*v)[i] = &me
+		} else {
+			me.EventAction(0)
 		}
 	}
 }
 
-func (m *Mux) Wait() { m.wait(nil) }
-
-func (m *Mux) EventWait(c chan event.Interface) { m.wait(c) }
+func (m *Mux) Wait() {
+	for {
+		m.wait(nil)
+	}
+}
+func (m *Mux) EventWait(v *event.ActorVec) { m.wait(v) }

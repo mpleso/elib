@@ -139,7 +139,8 @@ func runFibHeapTest(t *testFibHeap) (err error) {
 	var iter int
 
 	validate := func() (err error) {
-		fmin := Index(f.Min(objs))
+		i, _ := f.Min(objs)
+		fmin := Index(i)
 		omin := MaxIndex
 		if t.validateEvery != 0 && iter%int(t.validateEvery) == 0 {
 			for i := range objs {

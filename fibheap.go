@@ -152,9 +152,10 @@ func (f *FibHeap) Update(xi uint) {
 	f.Add(xi)
 }
 
-func (f *FibHeap) Min(data Ordered) (minu uint) {
+func (f *FibHeap) Min(data Ordered) (minu uint, valid bool) {
 	minu = uint(f.minIndex)
-	if f.minValid {
+	valid = f.minValid
+	if valid || len(f.nodes) == 0 {
 		return
 	}
 
@@ -213,7 +214,8 @@ func (f *FibHeap) Min(data Ordered) (minu uint) {
 		}
 	}
 
-	f.minValid = true
+	valid = true
+	f.minValid = valid
 	f.minIndex = min
 	minu = uint(min)
 

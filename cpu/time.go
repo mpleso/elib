@@ -51,7 +51,7 @@ func round(x, unit float64) float64 {
 
 func estimateOnce() {
 	cyclesOnce.Do(func() {
-		go estimateFrequency(1e-3, 1e6, 1e4)
+		go estimateFrequency(1e-4, 1e6, 1e4)
 	})
 	// Wait until estimateFrequency is done.
 	for secsPerCycle == 0 {
