@@ -30,11 +30,13 @@ type LoopStarter interface {
 	CliLoopStart(m *Main)
 }
 
+type Action func(c Commander, w Writer, args []string)
+
 type Command struct {
 	// Command name separated by space; alias by commas.
 	Name            string
 	ShortHelp, Help string
-	Action          func(c Commander, w Writer, args []string)
+	Action
 }
 
 func (c *Command) CliName() string                               { return c.Name }
@@ -189,7 +191,8 @@ func (m *Main) lookup(args []string) (Commander, []string, error) {
 		// Not found
 		return nil, nil, fmt.Errorf("unknown: %s", name)
 	}
-	return nil, nil, nil
+
+	return nil, nil, fmt.Errorf("ambiguous: %s", strings.Join(args, " "))
 }
 
 func (m *Main) Exec(w Writer, args []string) error {
@@ -203,4 +206,5 @@ func (m *Main) Exec(w Writer, args []string) error {
 var Default = &Main{}
 
 func AddCommand(c Commander)             { Default.AddCommand(c) }
+func Add(name string, action Action)     { Default.AddCommand(&Command{Name: name, Action: action}) }
 func Exec(w Writer, args []string) error { return Default.Exec(w, args) }
