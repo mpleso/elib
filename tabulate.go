@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
 type row struct {
@@ -31,10 +32,15 @@ func (c *col) getWidth() int {
 	return 1 + c.maxLen
 }
 
+func (c *col) displayName() string {
+	// Map underscore to space so that title for "a_b" is "A B".
+	return strings.Title(strings.Replace(c.name, "_", " ", -1))
+}
+
 func (t *table) String() (s string) {
 	s = ""
 	for c := range t.cols {
-		s += fmt.Sprintf("%*s", t.cols[c].getWidth(), t.cols[c].name)
+		s += fmt.Sprintf("%*s", t.cols[c].getWidth(), t.cols[c].displayName())
 	}
 	ndash := len(s)
 	s += "\n"
