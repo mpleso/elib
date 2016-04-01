@@ -3,7 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"text/scanner"
 )
 
 var builtins []Commander
@@ -14,9 +16,9 @@ type quitCmd struct{}
 
 var ErrQuit = errors.New("Quit")
 
-func (c *quitCmd) CliName() string                         { return "quit" }
-func (c *quitCmd) CliAction(w Writer, args []string) error { return ErrQuit }
-func init()                                                { addBuiltin(&quitCmd{}) }
+func (c *quitCmd) CliName() string                                 { return "quit" }
+func (c *quitCmd) CliAction(w io.Writer, s *scanner.Scanner) error { return ErrQuit }
+func init()                                                        { addBuiltin(&quitCmd{}) }
 
 type cmd struct {
 	name    string
@@ -38,7 +40,7 @@ func (c *helpCmd) CliLoopStart(m *Main) {
 	}
 	sort.Sort(c.cmds)
 }
-func (c *helpCmd) CliAction(w Writer, args []string) (err error) {
+func (c *helpCmd) CliAction(w io.Writer, s *scanner.Scanner) (err error) {
 	for _, c := range c.cmds {
 		help := ""
 		if h, ok := c.command.(ShortHelper); ok {

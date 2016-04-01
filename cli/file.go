@@ -37,23 +37,20 @@ func (c *File) rxReady() (err error) {
 		end--
 	}
 	if end > 0 {
-		args := strings.Split(string(b[:end]), " ")
-		if len(args) > 0 {
-			err = c.Exec(c, args)
-			if err != nil {
-				fmt.Fprintf(c, "%s\n", err)
-			}
-			if err == ErrQuit {
-				// Quit is only quit from stdin; otherwise just close file.
-				if !c.isStdin() {
-					c.Close()
-					err = nil
-				}
-				return
-			}
-			// The only error we bubble to callers is ErrQuit
-			err = nil
+		err = c.Exec(c, strings.NewReader(string(b[:end])))
+		if err != nil {
+			fmt.Fprintf(c, "%s\n", err)
 		}
+		if err == ErrQuit {
+			// Quit is only quit from stdin; otherwise just close file.
+			if !c.isStdin() {
+				c.Close()
+				err = nil
+			}
+			return
+		}
+		// The only error we bubble to callers is ErrQuit
+		err = nil
 	}
 	c.writePrompt()
 	// Advance read buffer.

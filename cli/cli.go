@@ -3,19 +3,16 @@ package cli
 import (
 	"github.com/platinasystems/elib/iomux"
 
+	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"sync"
+	"text/scanner"
 )
-
-type Writer interface {
-	io.Writer
-}
 
 type Commander interface {
 	CliName() string
-	CliAction(w Writer, args []string) error
+	CliAction(w io.Writer, s *scanner.Scanner) error
 }
 
 type Helper interface {
@@ -30,7 +27,7 @@ type LoopStarter interface {
 	CliLoopStart(m *Main)
 }
 
-type Action func(c Commander, w Writer, args []string)
+type Action func(c Commander, w io.Writer, s *scanner.Scanner)
 
 type Command struct {
 	// Command name separated by space; alias by commas.
@@ -39,10 +36,10 @@ type Command struct {
 	Action
 }
 
-func (c *Command) CliName() string                               { return c.Name }
-func (c *Command) CliShortHelp() string                          { return c.ShortHelp }
-func (c *Command) CliHelp() string                               { return c.Help }
-func (c *Command) CliAction(w Writer, args []string) (err error) { c.Action(c, w, args); return }
+func (c *Command) CliName() string                                       { return c.Name }
+func (c *Command) CliShortHelp() string                                  { return c.ShortHelp }
+func (c *Command) CliHelp() string                                       { return c.Help }
+func (c *Command) CliAction(w io.Writer, s *scanner.Scanner) (err error) { c.Action(c, w, s); return }
 
 type command struct {
 	name  string
@@ -74,8 +71,7 @@ type Main struct {
 	Prompt  string
 	RxReady chan fileIndex
 	FilePool
-	servers  []*server
-	initOnce sync.Once
+	servers []*server
 }
 
 func normalizeName(n string) string { return strings.ToLower(n) }
@@ -160,11 +156,16 @@ func (sub *subCommand) uniqueSubCommand(matching string) (*subCommand, bool) {
 	return c, ok
 }
 
-func (m *Main) lookup(args []string) (Commander, []string, error) {
+func (m *Main) lookup(s *scanner.Scanner) (Commander, error) {
 	sub := &m.rootCmd
-	n := len(args)
-	for i := 0; i < n; i++ {
-		name := normalizeName(args[i])
+	var tok rune
+	for tok != scanner.EOF {
+		tok = s.Scan()
+		if tok != scanner.Ident {
+			return nil, fmt.Errorf("%s: expecting ident; found '%s'", s.Pos(), s.TokenText())
+		}
+
+		name := normalizeName(s.TokenText())
 
 		// Exact match for sub-command.
 		if x, ok := sub.subs[name]; ok {
@@ -180,31 +181,33 @@ func (m *Main) lookup(args []string) (Commander, []string, error) {
 
 		// Exact match.
 		if x, ok := sub.cmds[name]; ok {
-			return x, args[i+1:], nil
+			return x, nil
 		}
 
 		// Unique match for command.
 		if x, ok := sub.uniqueCommand(name); ok {
-			return x, args[i+1:], nil
+			return x, nil
 		}
 
 		// Not found
-		return nil, nil, fmt.Errorf("unknown: %s", name)
+		return nil, fmt.Errorf("unknown: %s", name)
 	}
 
-	return nil, nil, fmt.Errorf("ambiguous: %s", strings.Join(args, " "))
+	return nil, errors.New("ambiguous")
 }
 
-func (m *Main) Exec(w Writer, args []string) error {
-	c, a, err := m.lookup(args)
+func (m *Main) Exec(w io.Writer, r io.Reader) error {
+	s := &scanner.Scanner{}
+	s.Init(r)
+	c, err := m.lookup(s)
 	if err == nil {
-		err = c.CliAction(w, a)
+		err = c.CliAction(w, s)
 	}
 	return err
 }
 
 var Default = &Main{}
 
-func AddCommand(c Commander)             { Default.AddCommand(c) }
-func Add(name string, action Action)     { Default.AddCommand(&Command{Name: name, Action: action}) }
-func Exec(w Writer, args []string) error { return Default.Exec(w, args) }
+func AddCommand(c Commander)              { Default.AddCommand(c) }
+func Add(name string, action Action)      { Default.AddCommand(&Command{Name: name, Action: action}) }
+func Exec(w io.Writer, r io.Reader) error { return Default.Exec(w, r) }
