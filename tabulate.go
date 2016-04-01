@@ -18,6 +18,7 @@ type col struct {
 	format string
 	width  int
 	maxLen int
+	align
 }
 
 type table struct {
@@ -37,10 +38,46 @@ func (c *col) displayName() string {
 	return strings.Title(strings.Replace(c.name, "_", " ", -1))
 }
 
+type align int
+
+const (
+	alignCenter align = iota
+	alignLeft
+	alignRight
+)
+
+func formatCenteredString(s string, align align, width int) (v string) {
+	l := len(s)
+	nLeft, nRight := 0, 0
+	if d := width - l; d > 0 {
+		switch align {
+		case alignCenter:
+			nLeft = d / 2
+			nRight = nLeft
+			if d%2 != 0 {
+				nLeft++
+			}
+		case alignLeft:
+			nRight = d
+		case alignRight:
+			nLeft = d
+		}
+	}
+	v = ""
+	for i := 0; i < nLeft; i++ {
+		v += " "
+	}
+	v += s
+	for i := 0; i < nRight; i++ {
+		v += " "
+	}
+	return
+}
+
 func (t *table) String() (s string) {
 	s = ""
 	for c := range t.cols {
-		s += fmt.Sprintf("%*s", t.cols[c].getWidth(), t.cols[c].displayName())
+		s += formatCenteredString(t.cols[c].displayName(), t.cols[c].align, t.cols[c].getWidth())
 	}
 	ndash := len(s)
 	s += "\n"
@@ -50,7 +87,7 @@ func (t *table) String() (s string) {
 	s += "\n"
 	for r := range t.rows {
 		for c := range t.rows[r].cols {
-			s += fmt.Sprintf("%*s", t.cols[c].getWidth(), t.rows[r].cols[c])
+			s += formatCenteredString(t.rows[r].cols[c], t.cols[c].align, t.cols[c].getWidth())
 		}
 		s += "\n"
 	}
