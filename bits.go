@@ -99,6 +99,7 @@ func NextSet(x Word) (v Word, i int) {
 	i = int(63) - int(NLeadingZeros(f))
 	return
 }
+func (x Word) NextSet() (Word, int) { return NextSet(x) }
 
 /* Bit compress: based on "Hacker's Delight" code from GLS. */
 const (
