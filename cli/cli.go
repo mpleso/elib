@@ -10,9 +10,28 @@ import (
 	"text/scanner"
 )
 
+type Writer interface {
+	io.Writer
+}
+
+type Scanner struct {
+	scanner.Scanner
+}
+
+const (
+	EOF       = scanner.EOF
+	Ident     = scanner.Ident
+	Int       = scanner.Int
+	Float     = scanner.Float
+	Char      = scanner.Char
+	String    = scanner.String
+	RawString = scanner.RawString
+	Comment   = scanner.Comment
+)
+
 type Commander interface {
 	CliName() string
-	CliAction(w io.Writer, s *scanner.Scanner) error
+	CliAction(w Writer, s *Scanner) error
 }
 
 type Helper interface {
@@ -27,7 +46,7 @@ type LoopStarter interface {
 	CliLoopStart(m *Main)
 }
 
-type Action func(c Commander, w io.Writer, s *scanner.Scanner)
+type Action func(c Commander, w Writer, s *Scanner)
 
 type Command struct {
 	// Command name separated by space; alias by commas.
@@ -36,10 +55,10 @@ type Command struct {
 	Action
 }
 
-func (c *Command) CliName() string                                       { return c.Name }
-func (c *Command) CliShortHelp() string                                  { return c.ShortHelp }
-func (c *Command) CliHelp() string                                       { return c.Help }
-func (c *Command) CliAction(w io.Writer, s *scanner.Scanner) (err error) { c.Action(c, w, s); return }
+func (c *Command) CliName() string                            { return c.Name }
+func (c *Command) CliShortHelp() string                       { return c.ShortHelp }
+func (c *Command) CliHelp() string                            { return c.Help }
+func (c *Command) CliAction(w Writer, s *Scanner) (err error) { c.Action(c, w, s); return }
 
 type command struct {
 	name  string
@@ -156,7 +175,7 @@ func (sub *subCommand) uniqueSubCommand(matching string) (*subCommand, bool) {
 	return c, ok
 }
 
-func (m *Main) lookup(s *scanner.Scanner) (Commander, error) {
+func (m *Main) lookup(s *Scanner) (Commander, error) {
 	sub := &m.rootCmd
 	var tok rune
 	for tok != scanner.EOF {
@@ -197,7 +216,7 @@ func (m *Main) lookup(s *scanner.Scanner) (Commander, error) {
 }
 
 func (m *Main) Exec(w io.Writer, r io.Reader) error {
-	s := &scanner.Scanner{}
+	s := &Scanner{}
 	s.Init(r)
 	c, err := m.lookup(s)
 	if err == nil {
