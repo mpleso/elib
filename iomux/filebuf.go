@@ -46,6 +46,10 @@ func (s *FileBuf) ReadReady() (err error) {
 
 	var n int
 	n, err = syscall.Read(s.Fd, s.rxBuffer[i:])
+	if n < 0 {
+		n = 0
+	}
+	s.rxBuffer = s.rxBuffer[:i+n]
 	if err != nil {
 		switch err {
 		case syscall.EAGAIN:
@@ -55,7 +59,6 @@ func (s *FileBuf) ReadReady() (err error) {
 		err = tst(err, "read")
 		return
 	}
-	s.rxBuffer = s.rxBuffer[:i+n]
 	if n == 0 {
 		s.Close()
 	}
