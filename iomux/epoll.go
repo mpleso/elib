@@ -172,7 +172,11 @@ func (m *Mux) wait(v *event.ActorVec) {
 		if n > 0 {
 			v.Validate(uint(n - 1))
 		}
-		*v = (*v)[:n]
+		l := n
+		if l < 0 {
+			l = 0
+		}
+		*v = (*v)[:l]
 	}
 	for i := 0; i < n; i++ {
 		me := muxEvent{Mux: m, epollEvent: es[i]}
