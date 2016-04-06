@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/platinasystems/elib/iomux"
+	"github.com/platinasystems/elib/loop"
 
 	"errors"
 	"fmt"
@@ -91,6 +92,7 @@ type Main struct {
 	RxReady chan fileIndex
 	FilePool
 	servers []*server
+	loop.Node
 }
 
 func normalizeName(n string) string { return strings.ToLower(n) }

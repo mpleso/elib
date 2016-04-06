@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/platinasystems/elib/iomux"
+	"github.com/platinasystems/elib/loop"
 
 	"fmt"
 	"strings"
@@ -11,14 +12,23 @@ import (
 func (c *File) ReadReady() (err error) {
 	err = c.FileReadWriteCloser.ReadReady()
 	if l := len(c.Read(0)); err == nil && l > 0 {
-		if c.RxReady != nil {
+		switch {
+		case c.RxReady != nil:
 			c.RxReady <- c.poolIndex
-		} else {
-			err = c.rxReady()
+		default:
+			loop.AddEvent(c, c.Main)
 		}
 	}
 	return
 }
+
+func (c *File) EventAction() {
+	if err := c.rxReady(); err == ErrQuit {
+		loop.AddEvent(loop.ErrQuit, nil)
+	}
+}
+
+func (m *Main) EventHandler() {}
 
 func (c *File) writePrompt() {
 	if l := len(c.Prompt); l > 0 {

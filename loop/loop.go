@@ -2,7 +2,6 @@ package loop
 
 import (
 	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cli"
 	"github.com/platinasystems/elib/cpu"
 	"github.com/platinasystems/elib/event"
 
@@ -36,14 +35,12 @@ type Noder interface {
 }
 
 type EventPoller interface {
-	Noder
-	EventPoll(e *event.ActorVec)
-	EventHandler() EventHandler
+	EventPoll()
 }
 
 type EventHandler interface {
 	Noder
-	EventHandler() EventHandler
+	EventHandler()
 }
 
 type Poller interface {
@@ -98,42 +95,36 @@ func (l *Loop) AddTimedEvent(e event.Actor, dst EventHandler, dt float64) {
 	})
 }
 
-func (e *loopEvent) EventAction(t cpu.Time) {
+func (e *loopEvent) EventAction() {
 	if e.dst != nil {
 		e.dst.rxEvents <- e.actor
 		e.dst.active = true
 	}
 }
 
-func (l *Loop) eventAction(e event.Actor) {
+func (l *Loop) doEvent(e event.Actor) {
 	defer func() {
-		if err := recover(); err == cli.ErrQuit {
+		if err := recover(); err == ErrQuit {
 			l.Quit()
 		} else if err != nil {
 			panic(err)
 		}
 	}()
-	e.EventAction(cpu.TimeNow())
+	e.EventAction()
 }
 
 func (l *Loop) eventHandler(p EventHandler) {
 	c := p.GetNode()
 	for {
 		e := <-c.rxEvents
-		l.eventAction(e)
+		l.doEvent(e)
 		c.toLoop <- struct{}{}
 	}
 }
 
 func (l *Loop) eventPoller(p EventPoller) {
-	c := p.GetNode()
-	h := p.EventHandler()
 	for {
-		p.EventPoll(&c.eventVec)
-		for _, e := range c.eventVec {
-			l.AddEvent(e, h)
-		}
-		<-c.fromLoop
+		p.EventPoll()
 	}
 }
 
@@ -141,17 +132,11 @@ func (l *Loop) doEvents() (done bool) {
 	l.now = cpu.TimeNow()
 
 	// Handle discrete events.
-	dt := time.Duration(1<<63 - 1)
-	if l.nActivePollers > 0 {
-		dt = 0
-	} else if t, ok := l.eventPool.NextTime(); ok {
-		dt = time.Duration(float64(t-l.now) * l.timeDurationPerCycle)
-	}
 	select {
 	case e := <-l.events:
 		done = e.isQuit()
-		e.EventAction(l.now)
-	case <-time.After(dt):
+		e.EventAction()
+	default:
 	}
 
 	// Handle expired timed events.
@@ -164,11 +149,6 @@ func (l *Loop) doEvents() (done bool) {
 			<-c.toLoop
 			c.active = false
 		}
-	}
-
-	for _, p := range l.eventPollers {
-		c := p.GetNode()
-		c.fromLoop <- struct{}{}
 	}
 
 	return
@@ -186,8 +166,6 @@ func (l *Loop) start() {
 	l.frameHeap.Init(64 << 20)
 
 	for _, n := range l.eventPollers {
-		c := n.GetNode()
-		c.fromLoop = make(chan struct{}, 1)
 		go l.eventPoller(n)
 	}
 	for _, n := range l.eventHandlers {
@@ -265,10 +243,6 @@ func (l *Loop) Run() {
 
 func (l *Loop) Register(n Noder) {
 	i := 0
-	if p, ok := n.(EventPoller); ok {
-		l.eventPollers = append(l.eventPollers, p)
-		i++
-	}
 	if h, ok := n.(EventHandler); ok {
 		l.eventHandlers = append(l.eventHandlers, h)
 		i++
@@ -289,14 +263,22 @@ func (l *Loop) Register(n Noder) {
 	x.loop = l
 }
 
+func (l *Loop) RegisterEventPoller(p EventPoller) {
+	l.eventPollers = append(l.eventPollers, p)
+}
+
 var defaultLoop = &Loop{}
 
-func AddEvent(e event.Actor) { defaultLoop.AddEvent(e, nil) }
-func Register(n Noder)       { defaultLoop.Register(n) }
-func Run()                   { defaultLoop.Run() }
+func AddEvent(e event.Actor, h EventHandler) { defaultLoop.AddEvent(e, h) }
+func Register(n Noder)                       { defaultLoop.Register(n) }
+func RegisterEventPoller(p EventPoller)      { defaultLoop.RegisterEventPoller(p) }
+func Run()                                   { defaultLoop.Run() }
 
 type quitEvent struct{}
 
-func (e *loopEvent) isQuit() (yes bool)     { _, yes = e.actor.(*quitEvent); return }
-func (q *quitEvent) EventAction(t cpu.Time) {}
-func (l *Loop) Quit()                       { l.AddEvent(&quitEvent{}, nil) }
+var ErrQuit = &quitEvent{}
+
+func (e *quitEvent) Error() string      { return "quit" }
+func (e *loopEvent) isQuit() (yes bool) { _, yes = e.actor.(*quitEvent); return }
+func (q *quitEvent) EventAction()       {}
+func (l *Loop) Quit()                   { l.AddEvent(&quitEvent{}, nil) }

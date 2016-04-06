@@ -3,9 +3,6 @@
 package iomux
 
 import (
-	"github.com/platinasystems/elib/cpu"
-	"github.com/platinasystems/elib/event"
-
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -127,13 +124,7 @@ func (m *Mux) Update(f Filer) {
 	}
 }
 
-type muxEvent struct {
-	epollEvent
-	*Mux
-}
-
-func (e *muxEvent) EventAction(now cpu.Time) {
-	m := e.Mux
+func (m *Mux) do(e *epollEvent) {
 	fi := e.data[0]
 	em := e.mask
 
@@ -159,38 +150,24 @@ func (e *muxEvent) EventAction(now cpu.Time) {
 	}
 }
 
-func (m *Mux) wait(v *event.ActorVec) {
+func (m *Mux) EventPoll() {
 	var events [256]epollEvent
 	m.maybe_epoll_create()
-	secs := float64(-1)
 	es := events[:]
-	n, err := epoll_pwait(m.fd, es, secs)
+	n, err := epoll_pwait(m.fd, es, float64(-1))
 	if err != nil {
 		panic(fmt.Errorf("epoll_pwait %s", err))
 	}
-	if v != nil {
-		if n > 0 {
-			v.Validate(uint(n - 1))
-		}
-		l := n
-		if l < 0 {
-			l = 0
-		}
-		*v = (*v)[:l]
-	}
 	for i := 0; i < n; i++ {
-		me := muxEvent{Mux: m, epollEvent: es[i]}
-		if v != nil {
-			(*v)[i] = &me
-		} else {
-			me.EventAction(0)
-		}
+		m.do(&es[i])
 	}
 }
 
-func (m *Mux) Wait() {
+func (m *Mux) Wait(once bool) {
 	for {
-		m.wait(nil)
+		m.EventPoll()
+		if once {
+			break
+		}
 	}
 }
-func (m *Mux) EventWait(v *event.ActorVec) { m.wait(v) }

@@ -6,7 +6,7 @@ import (
 )
 
 type Actor interface {
-	EventAction(now cpu.Time)
+	EventAction()
 }
 
 type TimedActor interface {
@@ -54,7 +54,7 @@ func (p *Pool) advance(t cpu.Time, iv *ActorVec) {
 		if iv != nil {
 			*iv = append(*iv, e)
 		}
-		e.EventAction(t)
+		e.EventAction()
 	}
 }
 
