@@ -128,15 +128,38 @@ func (l *Loop) eventPoller(p EventPoller) {
 	}
 }
 
-func (l *Loop) doEvents() (done bool) {
+func (l *Loop) doEventNoWait() (done bool) {
 	l.now = cpu.TimeNow()
-
-	// Handle discrete events.
 	select {
 	case e := <-l.events:
 		done = e.isQuit()
 		e.EventAction()
 	default:
+	}
+	return
+}
+
+func (l *Loop) doEventWait() (done bool) {
+	l.now = cpu.TimeNow()
+	dt := time.Duration(1<<63 - 1)
+	if t, ok := l.eventPool.NextTime(); ok {
+		dt = time.Duration(float64(t-l.now) * l.timeDurationPerCycle)
+	}
+	select {
+	case e := <-l.events:
+		done = e.isQuit()
+		e.EventAction()
+	case <-time.After(dt):
+	}
+	return
+}
+
+func (l *Loop) doEvents() (done bool) {
+	// Handle discrete events.
+	if l.nActivePollers > 0 {
+		done = l.doEventNoWait()
+	} else {
+		done = l.doEventWait()
 	}
 
 	// Handle expired timed events.
