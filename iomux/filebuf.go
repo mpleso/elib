@@ -102,6 +102,11 @@ func (s *FileBuf) WriteReady() (err error) {
 		var n int
 		n, err = syscall.Write(s.Fd, s.txBuffer)
 		if err != nil {
+			switch err {
+			case syscall.EAGAIN:
+				err = nil
+				return
+			}
 			err = tst(err, "write")
 			return
 		}
