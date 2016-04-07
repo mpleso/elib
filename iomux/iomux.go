@@ -32,9 +32,9 @@ type Filer interface {
 
 //go:generate gentemplate -d Package=iomux -id file -d Data=files -d PoolType=filePool -d Type=Filer github.com/platinasystems/elib/pool.tmpl
 
-var DefaultMux = &Mux{}
+var Default = &Mux{}
 
-func Add(f Filer)    { DefaultMux.Add(f) }
-func Del(f Filer)    { DefaultMux.Del(f) }
-func Update(f Filer) { DefaultMux.Update(f) }
-func Wait(once bool) { DefaultMux.Wait(once) }
+func Add(f Filer)    { Default.Add(f) }
+func Del(f Filer)    { Default.Del(f) }
+func Update(f Filer) { Default.Update(f) }
+func Wait(once bool) { Default.Wait(once) }
