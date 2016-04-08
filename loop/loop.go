@@ -107,7 +107,8 @@ func (l *Loop) doEvent(e event.Actor) {
 		if err := recover(); err == ErrQuit {
 			l.Quit()
 		} else if err != nil {
-			panic(err)
+			fmt.Printf("%s\n", err)
+			l.Quit()
 		}
 	}()
 	e.EventAction()
