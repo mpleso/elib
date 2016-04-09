@@ -185,7 +185,7 @@ func (m *Main) lookup(s *Scanner) (Commander, error) {
 		text string
 	)
 	for tok != scan.EOF {
-		tok, text = s.Scan()
+		tok, text = s.Next()
 		if tok != scan.Ident {
 			return nil, fmt.Errorf("%s: expecting ident; found '%s'", s.Pos(), text)
 		}

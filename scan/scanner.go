@@ -142,6 +142,15 @@ func (s *Scanner) Scan() (tok rune, text string) {
 	return
 }
 
+// Like Scan but skips white space.
+func (s *Scanner) Next() (tok rune, text string) {
+	tok, text = s.Scan()
+	for tok == Whitespace {
+		tok, text = s.Scan()
+	}
+	return
+}
+
 func (s *Scanner) Pos() Position {
 	if s.saveIndex < len(s.savedTokens) {
 		return s.savedTokens[s.saveIndex].pos
