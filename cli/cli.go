@@ -3,12 +3,12 @@ package cli
 import (
 	"github.com/platinasystems/elib/iomux"
 	"github.com/platinasystems/elib/loop"
+	"github.com/platinasystems/elib/scan"
 
 	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"text/scanner"
 )
 
 type Writer interface {
@@ -16,18 +16,19 @@ type Writer interface {
 }
 
 type Scanner struct {
-	scanner.Scanner
+	scan.Scanner
 }
 
 const (
-	EOF       = scanner.EOF
-	Ident     = scanner.Ident
-	Int       = scanner.Int
-	Float     = scanner.Float
-	Char      = scanner.Char
-	String    = scanner.String
-	RawString = scanner.RawString
-	Comment   = scanner.Comment
+	EOF        = scan.EOF
+	Ident      = scan.Ident
+	Int        = scan.Int
+	Float      = scan.Float
+	Char       = scan.Char
+	String     = scan.String
+	RawString  = scan.RawString
+	Comment    = scan.Comment
+	Whitespace = scan.Whitespace
 )
 
 type Commander interface {
@@ -179,14 +180,17 @@ func (sub *subCommand) uniqueSubCommand(matching string) (*subCommand, bool) {
 
 func (m *Main) lookup(s *Scanner) (Commander, error) {
 	sub := &m.rootCmd
-	var tok rune
-	for tok != scanner.EOF {
-		tok = s.Scan()
-		if tok != scanner.Ident {
-			return nil, fmt.Errorf("%s: expecting ident; found '%s'", s.Pos(), s.TokenText())
+	var (
+		tok  rune
+		text string
+	)
+	for tok != scan.EOF {
+		tok, text = s.Scan()
+		if tok != scan.Ident {
+			return nil, fmt.Errorf("%s: expecting ident; found '%s'", s.Pos(), text)
 		}
 
-		name := normalizeName(s.TokenText())
+		name := normalizeName(text)
 
 		// Exact match for sub-command.
 		if x, ok := sub.subs[name]; ok {
