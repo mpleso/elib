@@ -23,12 +23,27 @@ type Node struct {
 
 func (n *Node) GetNode() *Node { return n }
 
-func (n *Node) ActivateOnce() {
-	if !n.active {
-		n.oneShot = true
-		n.loop.nActivePollers++
+func (l *Loop) countActive(enable bool) {
+	if enable {
+		l.nActivePollers++
+	} else {
+		if l.nActivePollers == 0 {
+			panic("decrement zero active pollers")
+		}
+		l.nActivePollers--
 	}
 }
+
+func (n *Node) activate(enable, oneShot bool) {
+	if n.active != enable {
+		n.active = enable
+		n.oneShot = oneShot
+		n.loop.countActive(enable)
+	}
+}
+
+func (n *Node) Activate(enable bool)     { n.activate(enable, false) }
+func (n *Node) ActivateOnce(enable bool) { n.activate(enable, true) }
 
 type Noder interface {
 	GetNode() *Node
@@ -240,8 +255,13 @@ func (l *Loop) doPollers() {
 	nActive := 0
 	for _, p := range l.pollers {
 		c := p.GetNode()
-		if c.active || c.oneShot {
+		if c.active {
 			l.pollerNodes[nActive] = c
+			if c.oneShot {
+				c.active = false
+				c.oneShot = false
+				l.countActive(false)
+			}
 			nActive++
 			c.oneShot = false
 			c.fromLoop <- struct{}{}

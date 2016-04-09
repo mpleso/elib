@@ -13,10 +13,10 @@ func (c *File) ReadReady() (err error) {
 	err = c.FileReadWriteCloser.ReadReady()
 	if l := len(c.Read(0)); err == nil && l > 0 {
 		switch {
-		case c.RxReady != nil:
-			c.RxReady <- c.poolIndex
+		case c.main.RxReady != nil:
+			c.main.RxReady <- c.poolIndex
 		default:
-			loop.AddEvent(c, c.Main)
+			loop.AddEvent(c, c.main)
 		}
 	}
 	return
@@ -31,8 +31,8 @@ func (c *File) EventAction() {
 func (m *Main) EventHandler() {}
 
 func (c *File) writePrompt() {
-	if l := len(c.Prompt); l > 0 {
-		c.Write([]byte(c.Prompt))
+	if l := len(c.main.Prompt); l > 0 {
+		c.Write([]byte(c.main.Prompt))
 	}
 }
 
@@ -47,7 +47,7 @@ func (c *File) rxReady() (err error) {
 		end--
 	}
 	if end > 0 {
-		err = c.Exec(c, strings.NewReader(string(b[:end])))
+		err = c.main.Exec(c, strings.NewReader(string(b[:end])))
 		if err != nil {
 			fmt.Fprintf(c, "%s\n", err)
 		}
@@ -72,7 +72,7 @@ func (c *Main) AddFile(f iomux.FileReadWriteCloser) {
 	i := c.FilePool.GetIndex()
 	x := &c.Files[i]
 	*x = File{
-		Main:                c,
+		main:                c,
 		FileReadWriteCloser: f,
 		poolIndex:           fileIndex(i),
 	}
@@ -89,6 +89,16 @@ func (f *File) isStdin() bool {
 		return f.Fd == syscall.Stdin
 	}
 	return false
+}
+
+func (m *Main) Write(p []byte) (n int, err error) {
+	for i := range m.FilePool.Files {
+		if !m.FilePool.IsFree(uint(i)) {
+			n, err = m.FilePool.Files[i].Write(p)
+			return
+		}
+	}
+	return
 }
 
 func (m *Main) Start() {

@@ -76,7 +76,7 @@ type subCommand struct {
 func (c *subCommand) Elts() int { return len(c.cmds) + len(c.subs) }
 
 type File struct {
-	*Main
+	main      *Main
 	poolIndex fileIndex
 	iomux.FileReadWriteCloser
 }
@@ -231,7 +231,9 @@ func (m *Main) Exec(w io.Writer, r io.Reader) error {
 	return err
 }
 
-var Default = &Main{}
+var Default = &Main{
+	Prompt: "# ",
+}
 
 func AddCommand(c Commander)              { Default.AddCommand(c) }
 func Add(name string, action Action)      { Default.AddCommand(&Command{Name: name, Action: action}) }
