@@ -186,7 +186,10 @@ func (m *Main) lookup(s *Scanner) (Commander, error) {
 	)
 	for tok != scan.EOF {
 		tok, text = s.Next()
-		if tok != scan.Ident {
+		switch tok {
+		case scan.Ident, '?':
+			break
+		default:
 			return nil, fmt.Errorf("%s: expecting ident; found '%s'", s.Pos(), text)
 		}
 
