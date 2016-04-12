@@ -1,7 +1,6 @@
 package loop
 
 import (
-	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cpu"
 	"github.com/platinasystems/elib/event"
 
@@ -11,17 +10,21 @@ import (
 )
 
 type Node struct {
-	loop     *Loop
-	rxEvents chan event.Actor
-	toLoop   chan struct{}
-	fromLoop chan struct{}
-	eventVec event.ActorVec
-	active   bool
-	oneShot  bool
-	work     chan Worker
+	loop              *Loop
+	rxEvents          chan event.Actor
+	toLoop            chan struct{}
+	fromLoop          chan struct{}
+	eventVec          event.ActorVec
+	active            bool
+	oneShot           bool
+	work              chan Worker
+	dataCaller        DataCaller
+	index             uint
+	activePollerIndex uint
 }
 
 func (n *Node) GetNode() *Node { return n }
+func (n *Node) Index() uint    { return n.index }
 
 func (l *Loop) countActive(enable bool) {
 	if enable {
@@ -58,11 +61,6 @@ type EventHandler interface {
 	EventHandler()
 }
 
-type Poller interface {
-	Noder
-	Poll(l *Loop)
-}
-
 type Worker interface {
 	Noder
 	Work(l *Loop)
@@ -71,13 +69,13 @@ type Worker interface {
 type Loop struct {
 	eventPollers         []EventPoller
 	eventHandlers        []EventHandler
-	pollers              []Poller
+	dataPollers          []DataPoller
+	dataNodes            []dataOutNoder
 	workers              []Worker
-	pollerNodes          []*Node
+	activePollers        []activePoller
 	nActivePollers       uint32
 	events               chan loopEvent
 	eventPool            event.Pool
-	frameHeap            elib.MemHeap
 	startTime            cpu.Time
 	now                  cpu.Time
 	cyclesPerSec         float64
@@ -202,7 +200,6 @@ func (l *Loop) start() {
 	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
 
 	l.events = make(chan loopEvent, 256)
-	l.frameHeap.Init(64 << 20)
 
 	for _, n := range l.eventPollers {
 		go l.eventPoller(n)
@@ -214,11 +211,11 @@ func (l *Loop) start() {
 		c.rxEvents = make(chan event.Actor, 256)
 		go l.eventHandler(n)
 	}
-	for _, n := range l.pollers {
+	for _, n := range l.dataPollers {
 		c := n.GetNode()
 		c.toLoop = make(chan struct{}, 1)
 		c.fromLoop = make(chan struct{}, 1)
-		go l.poll(n)
+		go l.dataPoll(n)
 	}
 	for _, n := range l.workers {
 		c := n.GetNode()
@@ -227,50 +224,57 @@ func (l *Loop) start() {
 	}
 }
 
-func (n *Node) AddWork(w Worker) { n.work <- w }
+func (l *Loop) AddWork(n *Node, w Worker) {
+	l.workWg.Add(1)
+	n.work <- w
+}
 
 func (l *Loop) worker(w Worker) {
 	c := w.GetNode()
 	for {
 		w := <-c.work
-		l.workWg.Add(1)
 		w.Work(l)
 		l.workWg.Add(-1)
 	}
 }
 
-func (l *Loop) poll(p Poller) {
+func (l *Loop) dataPoll(p DataPoller) {
 	c := p.GetNode()
 	for {
 		<-c.fromLoop
-		p.Poll(l)
+		ap := &l.activePollers[c.activePollerIndex]
+		ap.init(l, c.activePollerIndex)
+		an := &ap.activeNodes[c.index]
+		ap.activeNode = an
+		p.Poll(l, an.callerOut)
+		an.out.nextFrame.call(l, ap)
 		c.toLoop <- struct{}{}
 	}
 }
 
 func (l *Loop) doPollers() {
-	if n := len(l.pollers); cap(l.pollerNodes) < n {
-		l.pollerNodes = make([]*Node, n)
+	if n := len(l.dataPollers); cap(l.activePollers) < n {
+		l.activePollers = make([]activePoller, n)
 	}
-	nActive := 0
-	for _, p := range l.pollers {
+	nActive := uint(0)
+	for _, p := range l.dataPollers {
 		c := p.GetNode()
 		if c.active {
-			l.pollerNodes[nActive] = c
+			l.activePollers[nActive].pollerNode = c
+			c.activePollerIndex = nActive
+			nActive++
 			if c.oneShot {
 				c.active = false
 				c.oneShot = false
 				l.countActive(false)
 			}
-			nActive++
-			c.oneShot = false
 			c.fromLoop <- struct{}{}
 		}
 	}
 
 	// Wait for pollers to finish.
-	for i := 0; i < nActive; i++ {
-		<-l.pollerNodes[i].toLoop
+	for i := uint(0); i < nActive; i++ {
+		<-l.activePollers[i].pollerNode.toLoop
 	}
 
 	// Wait for workers to finish.
@@ -286,13 +290,29 @@ func (l *Loop) Run() {
 }
 
 func (l *Loop) Register(n Noder) {
+	x := n.GetNode()
+	x.loop = l
+
 	i := 0
 	if h, ok := n.(EventHandler); ok {
 		l.eventHandlers = append(l.eventHandlers, h)
 		i++
 	}
-	if p, ok := n.(Poller); ok {
-		l.pollers = append(l.pollers, p)
+	if d, isIO := n.(dataOutNoder); isIO {
+		nok := 0
+		if q, ok := d.(DataPoller); ok {
+			l.dataPollers = append(l.dataPollers, q)
+			nok++
+		}
+		if _, ok := d.(DataCaller); ok {
+			nok++
+		}
+		if nok > 0 {
+			x.index = uint(len(l.dataNodes))
+			l.dataNodes = append(l.dataNodes, d)
+		} else {
+			panic("node missing Poll and/or Call method")
+		}
 		i++
 	}
 	if p, ok := n.(Worker); ok {
@@ -302,9 +322,6 @@ func (l *Loop) Register(n Noder) {
 	if i == 0 {
 		panic(fmt.Errorf("unkown node type: %T", n))
 	}
-
-	x := n.GetNode()
-	x.loop = l
 }
 
 func (l *Loop) RegisterEventPoller(p EventPoller) {
