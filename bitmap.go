@@ -433,3 +433,34 @@ func (p *BitmapPool) HexString(b Bitmap) string {
 func (b Bitmap) HexString() string {
 	return Bitmaps.HexString(b)
 }
+
+func (bm BitmapVec) Get(x uint) (v bool) {
+	i, m := bitmapIndex(x)
+	if i < uint(len(bm)) {
+		v = bm[i]&m != 0
+	}
+	return
+}
+
+func (bm BitmapVec) Set(x uint, v bool) (oldValue bool) {
+	i, m := bitmapIndex(x)
+	b := bm[i]
+	oldValue = b&m != 0
+	b |= m
+	bm[i] = b
+	return
+}
+
+func (bm BitmapVec) Unset(x uint) (v bool) {
+	i, m := bitmapIndex(x)
+	b := bm[i]
+	v = b&m != 0
+	b &^= m
+	bm[i] = b
+	return
+}
+
+func (bm *BitmapVec) Alloc(nBits uint) {
+	i, _ := bitmapIndex(nBits - 1)
+	bm.Validate(i)
+}
