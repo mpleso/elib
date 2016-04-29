@@ -138,7 +138,9 @@ func (s *Scanner) Scan() (tok rune, text string) {
 			s.savedTokens = append(s.savedTokens, savedToken{tok: tok, start: start, end: start + l, pos: Position(pos)})
 		}
 	}
-	s.saveIndex++
+	if len(s.saves) > 0 {
+		s.saveIndex++
+	}
 	return
 }
 
@@ -150,6 +152,8 @@ func (s *Scanner) Next() (tok rune, text string) {
 	}
 	return
 }
+
+func (s *Scanner) Peek() (tok rune) { return s.scanner.Peek() }
 
 func (s *Scanner) Pos() Position {
 	if s.saveIndex < len(s.savedTokens) {
@@ -192,7 +196,7 @@ func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 				return
 			}
 
-		case f[0] == '%':
+		case strings.IndexByte(f, '%') >= 0:
 			switch tok {
 			case Ident, Int, Float, String:
 				break
