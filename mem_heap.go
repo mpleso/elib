@@ -25,7 +25,7 @@ type MemHeap struct {
 // Init initializes heap with n bytes of mmap'ed anonymous memory.
 func (h *MemHeap) init(n uint) (err error) {
 	n = uint(Word(n).RoundCacheLine())
-	h.data, err = syscall.Mmap(0, 0, int(n), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS|syscall.MAP_NORESERVE)
+	h.data, err = syscall.Mmap(0, 0, int(n), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
 	if err != nil {
 		return fmt.Errorf("mmap: %s", err)
 	}
