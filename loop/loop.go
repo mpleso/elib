@@ -66,7 +66,17 @@ type Worker interface {
 	Work(l *Loop)
 }
 
+type Initer interface {
+	LoopInit(l *Loop)
+}
+
+type Exiter interface {
+	LoopExit(l *Loop)
+}
+
 type Loop struct {
+	loopIniters          []Initer
+	loopExiters          []Exiter
 	eventPollers         []EventPoller
 	eventHandlers        []EventHandler
 	dataPollers          []DataPoller
@@ -81,7 +91,7 @@ type Loop struct {
 	cyclesPerSec         float64
 	secsPerCycle         float64
 	timeDurationPerCycle float64
-	workWg               sync.WaitGroup
+	wg                   sync.WaitGroup
 }
 
 type loopEvent struct {
@@ -225,7 +235,7 @@ func (l *Loop) start() {
 }
 
 func (l *Loop) AddWork(n *Node, w Worker) {
-	l.workWg.Add(1)
+	l.wg.Add(1)
 	n.work <- w
 }
 
@@ -234,7 +244,7 @@ func (l *Loop) worker(w Worker) {
 	for {
 		w := <-c.work
 		w.Work(l)
-		l.workWg.Add(-1)
+		l.wg.Add(-1)
 	}
 }
 
@@ -278,25 +288,49 @@ func (l *Loop) doPollers() {
 	}
 
 	// Wait for workers to finish.
-	l.workWg.Wait()
+	l.wg.Wait()
+}
+
+func (l *Loop) init() {
+	i := 0
+	for {
+		if i >= len(l.loopIniters) {
+			break
+		}
+		l.wg.Add(1)
+		go func(i int) {
+			l.loopIniters[i].LoopInit(l)
+			l.wg.Done()
+		}(i)
+		i++
+	}
+	l.wg.Wait()
+}
+
+func (l *Loop) exit() {
+	for i := range l.loopExiters {
+		l.loopExiters[i].LoopExit(l)
+	}
 }
 
 func (l *Loop) Run() {
+	l.init()
 	l.start()
 	l.startTime = cpu.TimeNow()
 	for !l.doEvents() {
 		l.doPollers()
 	}
+	l.exit()
 }
 
 func (l *Loop) Register(n Noder) {
 	x := n.GetNode()
 	x.loop = l
 
-	i := 0
+	nOK := 0
 	if h, ok := n.(EventHandler); ok {
 		l.eventHandlers = append(l.eventHandlers, h)
-		i++
+		nOK++
 	}
 	if d, isIO := n.(dataOutNoder); isIO {
 		nok := 0
@@ -313,13 +347,21 @@ func (l *Loop) Register(n Noder) {
 		} else {
 			panic("node missing Poll and/or Call method")
 		}
-		i++
+		nOK += nok
 	}
 	if p, ok := n.(Worker); ok {
 		l.workers = append(l.workers, p)
-		i++
+		nOK++
 	}
-	if i == 0 {
+	if p, ok := n.(Initer); ok {
+		l.loopIniters = append(l.loopIniters, p)
+		nOK++
+	}
+	if p, ok := n.(Exiter); ok {
+		l.loopExiters = append(l.loopExiters, p)
+		nOK++
+	}
+	if nOK == 0 {
 		panic(fmt.Errorf("unkown node type: %T", n))
 	}
 }
