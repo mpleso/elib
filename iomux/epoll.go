@@ -162,12 +162,3 @@ func (m *Mux) EventPoll() {
 		m.do(&es[i])
 	}
 }
-
-func (m *Mux) Wait(once bool) {
-	for {
-		m.EventPoll()
-		if once {
-			break
-		}
-	}
-}

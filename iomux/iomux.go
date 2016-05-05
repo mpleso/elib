@@ -38,3 +38,12 @@ func Add(f Filer)    { Default.Add(f) }
 func Del(f Filer)    { Default.Del(f) }
 func Update(f Filer) { Default.Update(f) }
 func Wait(once bool) { Default.Wait(once) }
+
+func (m *Mux) Wait(once bool) {
+	for {
+		m.EventPoll()
+		if once {
+			break
+		}
+	}
+}
