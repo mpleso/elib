@@ -32,7 +32,7 @@ func (n *myNode) NewIn() loop.In                              { return &MyIn{} }
 func (n *myNode) NewOut() loop.Out                            { return &myOut{} }
 func (n *myNode) Poll(l *loop.Loop, out loop.Out)             { call(l, n, (*MyIn)(nil), out) }
 func (n *myNode) Call(l *loop.Loop, in loop.In, out loop.Out) { call(l, n, in, out) }
-func (n *myNode) LoopInit(l *loop.Loop)                       { time.Sleep(1 * time.Second) }
+func (n *myNode) LoopInit(l *loop.Loop)                       { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
 
 func call(l *loop.Loop, n *myNode, ci loop.In, co loop.Out) {
 	in, o := ci.(*MyIn), co.(*myOut)

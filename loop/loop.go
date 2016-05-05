@@ -21,6 +21,8 @@ type Node struct {
 	dataCaller        DataCaller
 	index             uint
 	activePollerIndex uint
+	initOnce          sync.Once
+	initWg            sync.WaitGroup
 }
 
 func (n *Node) GetNode() *Node { return n }
@@ -67,6 +69,7 @@ type Worker interface {
 }
 
 type Initer interface {
+	Noder
 	LoopInit(l *Loop)
 }
 
@@ -93,7 +96,6 @@ type Loop struct {
 	secsPerCycle           float64
 	timeDurationPerCycle   float64
 	wg                     sync.WaitGroup
-	initCalled             map[Initer]bool
 }
 
 type loopEvent struct {
@@ -310,16 +312,24 @@ func (l *Loop) timerInit() {
 	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
 }
 
-func (l *Loop) startInit(n Initer) {
-	l.wg.Add(1)
-	go func() {
-		n.LoopInit(l)
-		l.wg.Done()
-	}()
+func (l *Loop) callInit(n Initer, isCall bool) {
+	c := n.GetNode()
+	wg := &l.wg
+	if isCall {
+		wg = &c.initWg
+	}
+	c.initOnce.Do(func() {
+		wg.Add(1)
+		go func() {
+			n.LoopInit(l)
+			wg.Done()
+		}()
+	})
 }
+func (l *Loop) CallInit(n Initer)  { l.callInit(n, true) }
+func (l *Loop) startInit(n Initer) { l.callInit(n, false) }
 
 func (l *Loop) doInit() {
-	l.initCalled = make(map[Initer]bool)
 	for _, i := range l.loopIniters {
 		l.startInit(i)
 	}
