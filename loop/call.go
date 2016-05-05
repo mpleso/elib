@@ -16,10 +16,11 @@ type nodeStats struct {
 type activeNode struct {
 	index      uint32
 	dataCaller DataCaller
-	callerOut  CallerOut
-	out        *Out
+	callerOut  Out
+	out        *DataOut
 	inType     reflect.Type
-	outIns     []CallerIn
+	outIns     []In
+
 	nodeStats
 }
 
@@ -52,17 +53,18 @@ func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
 	}
 	ap.nodeIndexByInType[a.inType] = a.index
 
-	tIn := reflect.TypeOf((*CallerIn)(nil)).Elem()
+	tIn := reflect.TypeOf((*In)(nil)).Elem()
 	v := reflect.ValueOf(a.callerOut).Elem()
 	for i := 0; i < s.NumField(); i++ {
 		fi := s.Field(i)
 		ft := fi.Type
 		if reflect.PtrTo(ft).Implements(tIn) {
 			fv := v.Field(i).Addr()
-			ini := fv.Interface().(CallerIn)
-			in := ini.GetIn()
+			fvi := fv.Interface()
+			ini := fvi.(In)
+			in := ini.GetDataIn()
 			in.nextIndex = uint32(len(a.outIns))
-			a.outIns = append(a.outIns, ini)
+			a.outIns = append(a.outIns, fvi.(In))
 		}
 	}
 	return
@@ -81,7 +83,7 @@ func (ap *activePoller) init(l *Loop, api uint) {
 
 		a.index = uint32(ni)
 		a.callerOut = n.NewOut()
-		a.out = a.callerOut.GetOut()
+		a.out = a.callerOut.GetDataOut()
 		if d, ok := n.(DataCaller); ok {
 			a.dataCaller = d
 		}
@@ -104,18 +106,18 @@ func (ap *activePoller) init(l *Loop, api uint) {
 // Maximum vector length.
 const V = 256
 
-// Vector index.  Loop from 0 to FrameLen
+// Vector index.
 type Vi uint8
 
 type pending struct {
-	in        *In
+	in        *DataIn
 	nextIndex uint32
 	nodeIndex uint32
 }
 
 type nextFrame struct {
-	nextNodes []uint32
 	Len       []Vi
+	nextNodes []uint32
 	isPending elib.BitmapVec
 	pending   []pending
 }
@@ -127,7 +129,7 @@ func (f *nextFrame) init(nNext uint) {
 	f.nextNodes = make([]uint32, nNext)
 }
 
-func (i *In) PutNext(l *Loop, nVec uint) {
+func (i *DataIn) SetLen(l *Loop, nVec uint) {
 	xi := uint(i.nextIndex)
 	ap := &l.activePollers[i.activeIndex]
 	f := &ap.activeNode.out.nextFrame
@@ -176,40 +178,45 @@ func (f *nextFrame) call(l *Loop, a *activePoller) {
 	f.pending = f.pending[:0]
 }
 
-type Out struct{ nextFrame nextFrame }
-
-func (o *Out) GetOut() *Out { return o }
-func (o *Out) NewOut() *Out { return &Out{} }
-
-type CallerOut interface {
-	GetOut() *Out
+type DataOut struct {
+	nextFrame
 }
 
-type In struct {
+func (o *DataOut) GetDataOut() *DataOut { return o }
+
+type Out interface {
+	GetDataOut() *DataOut
+}
+
+type DataIn struct {
 	len         uint16
 	activeIndex uint16
 	nextIndex   uint32
 }
 
-func (i *In) GetIn() *In { return i }
-func (i *In) Len() uint  { return uint(i.len) }
+func (i *DataIn) GetDataIn() *DataIn { return i }
+func (i *DataIn) Len() uint          { return uint(i.len) }
 
-type CallerIn interface {
-	GetIn() *In
+type In interface {
+	GetDataIn() *DataIn
 }
 
 type dataOutNoder interface {
 	Noder
-	NewOut() CallerOut
+	NewOut() Out
+}
+
+type dataInOutNoder interface {
+	dataOutNoder
+	NewIn() In
 }
 
 type DataPoller interface {
 	dataOutNoder
-	Poll(l *Loop, o CallerOut)
+	Poll(l *Loop, o Out)
 }
 
 type DataCaller interface {
-	dataOutNoder
-	NewIn() CallerIn
-	Call(l *Loop, i CallerIn, o CallerOut)
+	dataInOutNoder
+	Call(l *Loop, i In, o Out)
 }

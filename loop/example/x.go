@@ -14,12 +14,12 @@ type myNode struct {
 }
 
 type MyIn struct {
-	loop.In
+	loop.DataIn
 	data [loop.V]uint
 }
 
 type myOut struct {
-	loop.Out
+	loop.DataOut
 	MyIn
 }
 
@@ -27,12 +27,12 @@ var myN = &myNode{}
 
 func init() { loop.Register(myN) }
 
-func (n *myNode) NewIn() loop.CallerIn                                    { return &MyIn{} }
-func (n *myNode) NewOut() loop.CallerOut                                  { return &myOut{} }
-func (n *myNode) Poll(l *loop.Loop, out loop.CallerOut)                   { call(l, n, (*MyIn)(nil), out) }
-func (n *myNode) Call(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) { call(l, n, in, out) }
+func (n *myNode) NewIn() loop.In                              { return &MyIn{} }
+func (n *myNode) NewOut() loop.Out                            { return &myOut{} }
+func (n *myNode) Poll(l *loop.Loop, out loop.Out)             { call(l, n, (*MyIn)(nil), out) }
+func (n *myNode) Call(l *loop.Loop, in loop.In, out loop.Out) { call(l, n, in, out) }
 
-func call(l *loop.Loop, n *myNode, ci loop.CallerIn, co loop.CallerOut) {
+func call(l *loop.Loop, n *myNode, ci loop.In, co loop.Out) {
 	in, o := ci.(*MyIn), co.(*myOut)
 	done := n.calls >= 10
 	if !done {
@@ -43,7 +43,7 @@ func call(l *loop.Loop, n *myNode, ci loop.CallerIn, co loop.CallerOut) {
 		for i := uint(0); i < nf; i++ {
 			o.data[i] = n.calls
 		}
-		o.MyIn.PutNext(l, nf)
+		o.MyIn.SetLen(l, nf)
 	}
 	fmt.Fprintf(cli.Default, "myNode poll %p %d\n", o, n.calls)
 	if done {
