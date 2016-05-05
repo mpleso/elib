@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"math"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -55,6 +56,7 @@ func estimateOnce() {
 	})
 	// Wait until estimateFrequency is done.
 	for secsPerCycle == 0 {
+		runtime.Gosched()
 	}
 }
 
