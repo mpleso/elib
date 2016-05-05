@@ -75,23 +75,25 @@ type Exiter interface {
 }
 
 type Loop struct {
-	loopIniters          []Initer
-	loopExiters          []Exiter
-	eventPollers         []EventPoller
-	eventHandlers        []EventHandler
-	dataPollers          []DataPoller
-	dataNodes            []dataOutNoder
-	workers              []Worker
-	activePollers        []activePoller
-	nActivePollers       uint32
-	events               chan loopEvent
-	eventPool            event.Pool
-	startTime            cpu.Time
-	now                  cpu.Time
-	cyclesPerSec         float64
-	secsPerCycle         float64
-	timeDurationPerCycle float64
-	wg                   sync.WaitGroup
+	eventPollers           []EventPoller
+	eventHandlers          []EventHandler
+	dataPollers            []DataPoller
+	dataNodes              []dataOutNoder
+	workers                []Worker
+	loopIniters            []Initer
+	loopExiters            []Exiter
+	activePollers          []activePoller
+	nActivePollers         uint32
+	events                 chan loopEvent
+	eventPool              event.Pool
+	registrationsNeedStart bool
+	startTime              cpu.Time
+	now                    cpu.Time
+	cyclesPerSec           float64
+	secsPerCycle           float64
+	timeDurationPerCycle   float64
+	wg                     sync.WaitGroup
+	initCalled             map[Initer]bool
 }
 
 type loopEvent struct {
@@ -146,11 +148,20 @@ func (l *Loop) eventHandler(p EventHandler) {
 	}
 }
 
+func (l *Loop) startEventHandler(n EventHandler) {
+	c := n.GetNode()
+	c.toLoop = make(chan struct{}, 1)
+	c.fromLoop = make(chan struct{}, 1)
+	c.rxEvents = make(chan event.Actor, 256)
+	go l.eventHandler(n)
+}
+
 func (l *Loop) eventPoller(p EventPoller) {
 	for {
 		p.EventPoll()
 	}
 }
+func (l *Loop) startEventPoller(n EventPoller) { go l.eventPoller(n) }
 
 func (l *Loop) doEventNoWait() (done bool) {
 	l.now = cpu.TimeNow()
@@ -201,37 +212,45 @@ func (l *Loop) doEvents() (done bool) {
 	return
 }
 
-func (l *Loop) start() {
-	// Initialize timer.
-	t := cpu.Time(0)
-	t.Cycles(1 * cpu.Second)
-	l.cyclesPerSec = float64(t)
-	l.secsPerCycle = t.Seconds()
-	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
-
+func (l *Loop) eventInit() {
 	l.events = make(chan loopEvent, 256)
 
 	for _, n := range l.eventPollers {
-		go l.eventPoller(n)
+		l.startEventPoller(n)
 	}
 	for _, n := range l.eventHandlers {
-		c := n.GetNode()
-		c.toLoop = make(chan struct{}, 1)
-		c.fromLoop = make(chan struct{}, 1)
-		c.rxEvents = make(chan event.Actor, 256)
-		go l.eventHandler(n)
+		l.startEventHandler(n)
 	}
+}
+
+func (l *Loop) startPollers() {
 	for _, n := range l.dataPollers {
-		c := n.GetNode()
-		c.toLoop = make(chan struct{}, 1)
-		c.fromLoop = make(chan struct{}, 1)
-		go l.dataPoll(n)
+		l.startDataPoller(n)
 	}
 	for _, n := range l.workers {
-		c := n.GetNode()
-		c.work = make(chan Worker, 256)
-		go l.worker(n)
+		l.startWorker(n)
 	}
+}
+
+func (l *Loop) dataPoll(p DataPoller) {
+	c := p.GetNode()
+	for {
+		<-c.fromLoop
+		ap := &l.activePollers[c.activePollerIndex]
+		ap.init(l, c.activePollerIndex)
+		an := &ap.activeNodes[c.index]
+		ap.activeNode = an
+		p.Poll(l, an.callerOut)
+		an.out.nextFrame.call(l, ap)
+		c.toLoop <- struct{}{}
+	}
+}
+
+func (l *Loop) startDataPoller(n DataPoller) {
+	c := n.GetNode()
+	c.toLoop = make(chan struct{}, 1)
+	c.fromLoop = make(chan struct{}, 1)
+	go l.dataPoll(n)
 }
 
 func (l *Loop) AddWork(n *Node, w Worker) {
@@ -248,18 +267,10 @@ func (l *Loop) worker(w Worker) {
 	}
 }
 
-func (l *Loop) dataPoll(p DataPoller) {
-	c := p.GetNode()
-	for {
-		<-c.fromLoop
-		ap := &l.activePollers[c.activePollerIndex]
-		ap.init(l, c.activePollerIndex)
-		an := &ap.activeNodes[c.index]
-		ap.activeNode = an
-		p.Poll(l, an.callerOut)
-		an.out.nextFrame.call(l, ap)
-		c.toLoop <- struct{}{}
-	}
+func (l *Loop) startWorker(n Worker) {
+	c := n.GetNode()
+	c.work = make(chan Worker, 256)
+	go l.worker(n)
 }
 
 func (l *Loop) doPollers() {
@@ -291,51 +302,69 @@ func (l *Loop) doPollers() {
 	l.wg.Wait()
 }
 
-func (l *Loop) init() {
-	i := 0
-	for {
-		if i >= len(l.loopIniters) {
-			break
-		}
-		l.wg.Add(1)
-		go func(i int) {
-			l.loopIniters[i].LoopInit(l)
-			l.wg.Done()
-		}(i)
-		i++
+func (l *Loop) timerInit() {
+	t := cpu.Time(0)
+	t.Cycles(1 * cpu.Second)
+	l.cyclesPerSec = float64(t)
+	l.secsPerCycle = t.Seconds()
+	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
+}
+
+func (l *Loop) startInit(n Initer) {
+	l.wg.Add(1)
+	go func() {
+		n.LoopInit(l)
+		l.wg.Done()
+	}()
+}
+
+func (l *Loop) doInit() {
+	l.initCalled = make(map[Initer]bool)
+	for _, i := range l.loopIniters {
+		l.startInit(i)
 	}
 	l.wg.Wait()
 }
 
-func (l *Loop) exit() {
+func (l *Loop) doExit() {
 	for i := range l.loopExiters {
 		l.loopExiters[i].LoopExit(l)
 	}
 }
 
 func (l *Loop) Run() {
-	l.init()
-	l.start()
+	l.timerInit()
 	l.startTime = cpu.TimeNow()
+	l.eventInit()
+	l.startPollers()
+	l.registrationsNeedStart = true
+	l.doInit()
 	for !l.doEvents() {
 		l.doPollers()
 	}
-	l.exit()
+	l.doExit()
 }
 
 func (l *Loop) Register(n Noder) {
 	x := n.GetNode()
 	x.loop = l
+	start := l.registrationsNeedStart
 
 	nOK := 0
 	if h, ok := n.(EventHandler); ok {
 		l.eventHandlers = append(l.eventHandlers, h)
+		if start {
+			l.startEventHandler(h)
+		}
 		nOK++
 	}
 	if d, isIO := n.(dataOutNoder); isIO {
 		nok := 0
 		if q, ok := d.(DataPoller); ok {
 			l.dataPollers = append(l.dataPollers, q)
+			if start {
+				l.startDataPoller(q)
+			}
 			nok++
 		}
 		if _, ok := d.(DataCaller); ok {
@@ -351,10 +380,16 @@ func (l *Loop) Register(n Noder) {
 	}
 	if p, ok := n.(Worker); ok {
 		l.workers = append(l.workers, p)
+		if start {
+			l.startWorker(p)
+		}
 		nOK++
 	}
 	if p, ok := n.(Initer); ok {
 		l.loopIniters = append(l.loopIniters, p)
+		if start {
+			l.startInit(p)
+		}
 		nOK++
 	}
 	if p, ok := n.(Exiter); ok {
