@@ -93,7 +93,11 @@ func (s *Scanner) Save() (v int) {
 func (s *Scanner) Restore(v int) (tok rune) {
 	s.saveIndex = s.saves[v].saveIndex
 	s.saves = s.saves[:v]
-	tok = s.savedTokens[s.saveIndex].tok
+	if s.saveIndex == 0 && len(s.savedTokens) == 0 {
+		tok = EOF
+	} else {
+		tok = s.savedTokens[s.saveIndex].tok
+	}
 	return
 }
 
@@ -223,7 +227,7 @@ func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 					return
 				}
 			} else {
-				err = fmt.Errorf("%s: %v does not implement Parser interface", s.Pos(), a)
+				err = fmt.Errorf("%s: %T does not implement Parser interface", s.Pos(), a)
 				return
 			}
 		} else {
