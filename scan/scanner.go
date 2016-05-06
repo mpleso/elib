@@ -35,15 +35,22 @@ var tokMap = [...]rune{
 }
 
 var tokNames = [...]string{
-	-EOF:        "EOF",
-	-Ident:      "Ident",
-	-Int:        "Int",
-	-Float:      "Float",
-	-Char:       "Char",
-	-String:     "String",
-	-RawString:  "RawString",
-	-Comment:    "Comment",
-	-Whitespace: "Whitespace",
+	-EOF:        "eof",
+	-Ident:      "identifier",
+	-Int:        "integer",
+	-Float:      "float",
+	-Char:       "char",
+	-String:     "string",
+	-RawString:  "raw string",
+	-Comment:    "comment",
+	-Whitespace: "whitespace",
+}
+
+func tokString(tok rune) string {
+	if tok < 0 {
+		return tokNames[-tok]
+	}
+	return string(tok)
 }
 
 type savedToken struct {
@@ -100,8 +107,7 @@ func (s *Scanner) Advance() {
 	}
 }
 
-func (s *Scanner) next() (tok rune, text string) {
-	nWhite := 0
+func (s *Scanner) peekWhite() (tok rune, nWhite uint) {
 	for {
 		tok = s.scanner.Peek()
 		if tok < 0 || s.whitespace&(1<<uint(tok)) == 0 {
@@ -110,8 +116,35 @@ func (s *Scanner) next() (tok rune, text string) {
 		nWhite++
 		s.scanner.Next()
 	}
+	return
+}
 
-	if nWhite > 0 {
+func (s *Scanner) Peek() (tok rune) {
+	var nWhite uint
+	if tok, nWhite = s.peekWhite(); nWhite > 0 {
+		tok = Whitespace
+	} else {
+		tok = s.scanner.Peek()
+		if tok < 0 && int(-tok) < len(tokMap) {
+			tok = tokMap[-tok]
+		}
+	}
+	return
+}
+
+func (s *Scanner) nextNonWhite() (tok rune, text string) {
+	tok, text = s.Scan()
+	for tok == Whitespace {
+		tok, text = s.Scan()
+	}
+	return
+}
+
+func (s *Scanner) SkipWhite() { s.peekWhite() }
+
+func (s *Scanner) next() (tok rune, text string) {
+	var nWhite uint
+	if tok, nWhite = s.peekWhite(); nWhite > 0 {
 		tok = Whitespace
 		text = ""
 	} else {
@@ -153,8 +186,6 @@ func (s *Scanner) Next() (tok rune, text string) {
 	return
 }
 
-func (s *Scanner) Peek() (tok rune) { return s.scanner.Peek() }
-
 func (s *Scanner) Pos() Position {
 	if s.saveIndex < len(s.savedTokens) {
 		return s.savedTokens[s.saveIndex].pos
@@ -165,6 +196,10 @@ func (s *Scanner) Pos() Position {
 func (pos Position) String() string { return scanner.Position(pos).String() }
 
 var NoMatch = errors.New("no match")
+
+func (s *Scanner) UnexpectedError(tok rune, text string) (err error) {
+	return fmt.Errorf("%s: expected %s found `%s'", s.Pos(), tokString(tok), text)
+}
 
 func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 	fs := strings.Fields(template)
@@ -178,16 +213,12 @@ func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 		}
 	}()
 	for _, f := range fs {
-		tok, text := s.Scan()
-		for tok == Whitespace {
-			tok, text = s.Scan()
-		}
-		switch {
-		case f == "%":
+		if f == "%" {
 			a := args[ai]
 			ai++
 			if p, ok := a.(Parser); ok {
-				err = p.Parse(text)
+				s.peekWhite()
+				err = p.Parse(s)
 				if err != nil {
 					return
 				}
@@ -195,35 +226,38 @@ func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 				err = fmt.Errorf("%s: %v does not implement Parser interface", s.Pos(), a)
 				return
 			}
-
-		case strings.IndexByte(f, '%') >= 0:
-			switch tok {
-			case Ident, Int, Float, String:
-				break
-			default:
-				err = fmt.Errorf("%s: expected identifier got `%s'", s.Pos(), text)
-				return
-			}
-			_, err = fmt.Sscanf(text, f, args[ai:ai+1]...)
-			if err != nil {
-				err = fmt.Errorf("%s: `%s' %s", s.Pos(), text, err)
-				return
-			}
-			ai++
-
-		default:
-			// Match exact text or for X*Y match up to X and only match Y if present.
-			if ok := f == text; !ok {
-				if star := strings.Index(f, "*"); star > 0 {
-					x := strings.Index(text, f[:star])
-					if x == 0 {
-						x = strings.Index(f[star+1:], text[star:])
-					}
-					ok = x == 0
-				}
-				if !ok {
-					err = NoMatch
+		} else {
+			tok, text := s.nextNonWhite()
+			switch {
+			case strings.IndexByte(f, '%') >= 0:
+				switch tok {
+				case Ident, Int, Float, String:
+					break
+				default:
+					err = s.UnexpectedError(Ident, text)
 					return
+				}
+				_, err = fmt.Sscanf(text, f, args[ai:ai+1]...)
+				if err != nil {
+					err = fmt.Errorf("%s: `%s' %s", s.Pos(), text, err)
+					return
+				}
+				ai++
+
+			default:
+				// Match exact text or for X*Y match up to X and only match Y if present.
+				if ok := f == text; !ok {
+					if star := strings.Index(f, "*"); star > 0 {
+						x := strings.Index(text, f[:star])
+						if x == 0 {
+							x = strings.Index(f[star+1:], text[star:])
+						}
+						ok = x == 0
+					}
+					if !ok {
+						err = NoMatch
+						return
+					}
 				}
 			}
 		}
@@ -232,5 +266,5 @@ func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 }
 
 type Parser interface {
-	Parse(text string) error
+	Parse(input *Scanner) error
 }
