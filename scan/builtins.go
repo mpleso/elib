@@ -45,7 +45,8 @@ func (b *Bitmap) String() string { return elib.Bitmap(*b).String() }
 func (b *Bitmap) Parse(s *Scanner) error {
 	r := elib.Bitmap(0)
 
-	i := 0
+	sep := rune(0)
+	last := uint(0)
 	for {
 		tok, text := s.Scan()
 
@@ -57,20 +58,34 @@ func (b *Bitmap) Parse(s *Scanner) error {
 		if err != nil {
 			return err
 		}
+		uv := uint(v)
 
-		r = r.Set(uint(v))
-
-		i++
-		if tok = s.Peek(); tok == EOF {
-			break
+		if sep == '-' {
+			if last > uv {
+				return fmt.Errorf("%s: expected lo %d > hi %d in range", s.Pos(), last, uv)
+			}
+			for i := last; i <= uv; i++ {
+				r = r.Set(i)
+			}
+			last = uint(0)
+		} else {
+			r = r.Set(uv)
+			last = uv
 		}
-		if tok != ',' {
+
+		tok = s.Peek()
+		switch tok {
+		case EOF, Whitespace:
+			*b = Bitmap(r)
+			return nil
+		case ',', '-':
+			sep, _ = s.Scan()
+			if tok == '-' && last == 0 {
+				return fmt.Errorf("%s: expected , after range; got -", s.Pos())
+			}
+		default:
 			return fmt.Errorf("%s: expected , after %s; got %s", s.Pos(), text, tokString(tok))
 		}
-		// Skip ,
-		s.Scan()
 	}
 
-	*b = Bitmap(r)
-	return nil
 }
