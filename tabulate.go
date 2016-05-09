@@ -30,7 +30,7 @@ func (c *col) getWidth() int {
 	if c.width != 0 {
 		return c.width
 	}
-	return 1 + c.maxLen
+	return c.maxLen
 }
 
 func (c *col) displayName() string {
@@ -78,11 +78,6 @@ func (t *table) String() (s string) {
 	s = ""
 	for c := range t.cols {
 		s += formatCenteredString(t.cols[c].displayName(), t.cols[c].align, t.cols[c].getWidth())
-	}
-	ndash := len(s)
-	s += "\n"
-	for i := 0; i < ndash; i++ {
-		s += "-"
 	}
 	s += "\n"
 	for r := range t.rows {
