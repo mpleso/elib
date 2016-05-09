@@ -28,11 +28,13 @@ func (s *nodeStats) clocksPerVector() (v float64) {
 
 type activeNode struct {
 	// Index in activePoller.activeNodes and also loop.dataNodes.
-	index      uint32
-	dataCaller inOutLooper
-	callerOut  LooperOut
-	out        *Out
-	outIns     []LooperIn
+	index       uint32
+	loopInMaker loopInMaker
+	inOutLooper inOutLooper
+	outLooper   outLooper
+	looperOut   LooperOut
+	out         *Out
+	outIns      []LooperIn
 
 	nodeStats
 	statsLastClear nodeStats
@@ -47,7 +49,7 @@ type activePoller struct {
 }
 
 func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
-	ptr := reflect.TypeOf(a.callerOut)
+	ptr := reflect.TypeOf(a.looperOut)
 	if ptr.Kind() != reflect.Ptr {
 		err = fmt.Errorf("not pointer")
 		return
@@ -61,7 +63,7 @@ func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
 	if ap.nodeIndexByInType == nil {
 		ap.nodeIndexByInType = make(map[reflect.Type]uint32)
 	}
-	inType := reflect.TypeOf(a.dataCaller.MakeLoopIn())
+	inType := reflect.TypeOf(a.loopInMaker.MakeLoopIn())
 	if _, ok := ap.nodeIndexByInType[inType]; ok {
 		err = fmt.Errorf("duplicate nodes handle input type %T", inType)
 		return
@@ -69,7 +71,7 @@ func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
 	ap.nodeIndexByInType[inType] = a.index
 
 	tIn := reflect.TypeOf((*LooperIn)(nil)).Elem()
-	v := reflect.ValueOf(a.callerOut).Elem()
+	v := reflect.ValueOf(a.looperOut).Elem()
 	for i := 0; i < s.NumField(); i++ {
 		if reflect.PtrTo(s.Field(i).Type).Implements(tIn) {
 			ini := v.Field(i).Addr().Interface().(LooperIn)
@@ -95,11 +97,15 @@ func (ap *activePoller) init(l *Loop, api uint) {
 
 		a.index = uint32(ni)
 		if d, ok := n.(outNoder); ok {
-			a.callerOut = d.MakeLoopOut()
-			a.out = a.callerOut.GetOut()
+			a.looperOut = d.MakeLoopOut()
+			a.out = a.looperOut.GetOut()
 		}
+		a.loopInMaker = n.(loopInMaker)
 		if d, ok := n.(inOutLooper); ok {
-			a.dataCaller = d
+			a.inOutLooper = d
+		}
+		if d, ok := n.(outLooper); ok {
+			a.outLooper = d
 		}
 
 		if err := a.analyzeOut(ap); err != nil {
@@ -192,7 +198,12 @@ func (f *Out) call(l *Loop, a *activePoller) {
 
 		// Call next node.
 		a.currentNode = next
-		next.dataCaller.LoopInputOutput(l, prevNode.outIns[xi], next.callerOut)
+		nextIn := prevNode.outIns[xi]
+		if next.out != nil {
+			next.inOutLooper.LoopInputOutput(l, nextIn, next.looperOut)
+		} else {
+			next.outLooper.LoopOutput(l, nextIn)
+		}
 
 		t := cpu.TimeNow()
 		next.calls++

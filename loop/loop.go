@@ -246,7 +246,7 @@ func (l *Loop) dataPoll(p inLooper) {
 		}
 		n := &ap.activeNodes[c.index]
 		ap.currentNode = n
-		p.LoopInput(l, n.callerOut)
+		p.LoopInput(l, n.looperOut)
 		n.out.call(l, ap)
 		c.toLoop <- struct{}{}
 	}
