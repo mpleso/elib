@@ -10,6 +10,8 @@ import (
 )
 
 type Node struct {
+	name              string
+	index             uint
 	loop              *Loop
 	rxEvents          chan event.Actor
 	toLoop            chan struct{}
@@ -19,7 +21,6 @@ type Node struct {
 	oneShot           bool
 	work              chan Worker
 	dataCaller        DataCaller
-	index             uint
 	activePollerIndex uint
 	initOnce          sync.Once
 	initWg            sync.WaitGroup
@@ -27,6 +28,7 @@ type Node struct {
 
 func (n *Node) GetNode() *Node { return n }
 func (n *Node) Index() uint    { return n.index }
+func (n *Node) Name() string   { return n.name }
 
 func (l *Loop) countActive(enable bool) {
 	if enable {
@@ -239,11 +241,13 @@ func (l *Loop) dataPoll(p DataPoller) {
 	for {
 		<-c.fromLoop
 		ap := &l.activePollers[c.activePollerIndex]
-		ap.init(l, c.activePollerIndex)
-		an := &ap.activeNodes[c.index]
-		ap.activeNode = an
-		p.Poll(l, an.callerOut)
-		an.out.nextFrame.call(l, ap)
+		if ap.activeNodes == nil {
+			ap.init(l, c.activePollerIndex)
+		}
+		n := &ap.activeNodes[c.index]
+		ap.currentNode = n
+		p.Poll(l, n.callerOut)
+		n.out.call(l, ap)
 		c.toLoop <- struct{}{}
 	}
 }
@@ -355,8 +359,9 @@ func (l *Loop) Run() {
 	l.doExit()
 }
 
-func (l *Loop) Register(n Noder) {
+func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 	x := n.GetNode()
+	x.name = fmt.Sprintf(format, args...)
 	x.loop = l
 	start := l.registrationsNeedStart
 
@@ -417,10 +422,10 @@ func (l *Loop) RegisterEventPoller(p EventPoller) {
 
 var defaultLoop = &Loop{}
 
-func AddEvent(e event.Actor, h EventHandler) { defaultLoop.AddEvent(e, h) }
-func Register(n Noder)                       { defaultLoop.Register(n) }
-func RegisterEventPoller(p EventPoller)      { defaultLoop.RegisterEventPoller(p) }
-func Run()                                   { defaultLoop.Run() }
+func AddEvent(e event.Actor, h EventHandler)               { defaultLoop.AddEvent(e, h) }
+func Register(n Noder, format string, args ...interface{}) { defaultLoop.Register(n, format, args...) }
+func RegisterEventPoller(p EventPoller)                    { defaultLoop.RegisterEventPoller(p) }
+func Run()                                                 { defaultLoop.Run() }
 
 type quitEvent struct{}
 
