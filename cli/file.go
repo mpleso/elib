@@ -2,7 +2,6 @@ package cli
 
 import (
 	"github.com/platinasystems/elib/iomux"
-	"github.com/platinasystems/elib/loop"
 
 	"fmt"
 	"strings"
@@ -12,23 +11,10 @@ import (
 func (c *File) ReadReady() (err error) {
 	err = c.FileReadWriteCloser.ReadReady()
 	if l := len(c.Read(0)); err == nil && l > 0 {
-		switch {
-		case c.main.RxReady != nil:
-			c.main.RxReady <- c.poolIndex
-		default:
-			loop.AddEvent(c, c.main)
-		}
+		c.main.RxReady(c)
 	}
 	return
 }
-
-func (c *File) EventAction() {
-	if err := c.rxReady(); err == ErrQuit {
-		loop.AddEvent(loop.ErrQuit, nil)
-	}
-}
-
-func (m *Main) EventHandler() {}
 
 func (c *File) writePrompt() {
 	if l := len(c.main.Prompt); l > 0 {
@@ -36,7 +22,7 @@ func (c *File) writePrompt() {
 	}
 }
 
-func (c *File) rxReady() (err error) {
+func (c *File) RxReady() (err error) {
 	b := c.Read(0)
 	nl := strings.Index(string(b), "\n")
 	if nl == -1 {
@@ -123,14 +109,15 @@ func (c *Main) End() {
 }
 
 func (c *Main) Loop() {
-	if c.RxReady == nil {
-		c.RxReady = make(chan fileIndex)
+	rxReady := make(chan fileIndex)
+	c.RxReady = func(c *File) {
+		rxReady <- c.poolIndex
 	}
 	c.Start()
 	defer c.End()
 	for {
-		i := <-c.RxReady
-		if err := c.Files[i].rxReady(); err == ErrQuit {
+		i := <-rxReady
+		if err := c.Files[i].RxReady(); err == ErrQuit {
 			break
 		}
 	}

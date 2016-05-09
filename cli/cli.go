@@ -2,7 +2,6 @@ package cli
 
 import (
 	"github.com/platinasystems/elib/iomux"
-	"github.com/platinasystems/elib/loop"
 	"github.com/platinasystems/elib/scan"
 
 	"errors"
@@ -90,10 +89,9 @@ type Main struct {
 	rootCmd subCommand
 	allCmds map[string]Commander
 	Prompt  string
-	RxReady chan fileIndex
+	RxReady func(c *File)
 	FilePool
 	servers []*server
-	loop.Node
 }
 
 func normalizeName(n string) string { return strings.ToLower(n) }
@@ -238,6 +236,8 @@ var Default = &Main{
 	Prompt: "# ",
 }
 
+func (c *Main) Add(name string, action Action) { c.AddCommand(&Command{Name: name, Action: action}) }
+
 func AddCommand(c Commander)              { Default.AddCommand(c) }
-func Add(name string, action Action)      { Default.AddCommand(&Command{Name: name, Action: action}) }
+func _Add(name string, action Action)     { Default.Add(name, action) }
 func Exec(w io.Writer, r io.Reader) error { return Default.Exec(w, r) }
