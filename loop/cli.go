@@ -64,11 +64,6 @@ func (ns rtNodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
 func (ns rtNodes) Len() int           { return len(ns) }
 
 func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
-	if len(l.dataNodes) == 0 {
-		fmt.Fprintln(w, "no data nodes")
-		return
-	}
-
 	ns := rtNodes(make([]rtNode, len(l.dataNodes)))
 	for i := range l.dataNodes {
 		n := l.dataNodes[i].GetNode()

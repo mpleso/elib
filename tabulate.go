@@ -133,9 +133,7 @@ func Tabulate(x interface{}) (tab *table) {
 		tab.cols[c].maxLen = len(tab.cols[c].name)
 
 		// Add default inter-column space.
-		if c > 0 {
-			tab.cols[c].maxLen += 2
-		}
+		tab.cols[c].maxLen += 2
 	}
 
 	for r := 0; r < vLen; r++ {
