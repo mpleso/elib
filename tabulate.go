@@ -131,6 +131,9 @@ func Tabulate(x interface{}) (tab *table) {
 		}
 		tab.cols[c].name = f.Name
 		tab.cols[c].maxLen = len(tab.cols[c].name)
+		if c > 0 {
+			tab.cols[c].maxLen += 1
+		}
 	}
 
 	for r := 0; r < vLen; r++ {
