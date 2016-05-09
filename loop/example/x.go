@@ -27,13 +27,13 @@ var node0 = &n0{}
 
 func init() { loop.Register(node0, "node0") }
 
-func (n *n0) NewLoopIn() loop.CallerIn                                           { return &N0In{} }
-func (n *n0) NewLoopOut() loop.CallerOut                                         { return &n0Out{} }
-func (n *n0) LoopInput(l *loop.Loop, out loop.CallerOut)                         { call(l, n, (*N0In)(nil), out) }
-func (n *n0) LoopInputOutput(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) { call(l, n, in, out) }
+func (n *n0) MakeLoopIn() loop.LooperIn                                          { return &N0In{} }
+func (n *n0) MakeLoopOut() loop.LooperOut                                        { return &n0Out{} }
+func (n *n0) LoopInput(l *loop.Loop, out loop.LooperOut)                         { call(l, n, (*N0In)(nil), out) }
+func (n *n0) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) { call(l, n, in, out) }
 func (n *n0) LoopInit(l *loop.Loop)                                              { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
 
-func call(l *loop.Loop, n *n0, ci loop.CallerIn, co loop.CallerOut) {
+func call(l *loop.Loop, n *n0, ci loop.LooperIn, co loop.LooperOut) {
 	in, out := ci.(*N0In), co.(*n0Out)
 	done := n.calls >= 10
 	if !done {
@@ -64,14 +64,14 @@ type N1In struct {
 
 type n1Out struct {
 	loop.Out
-	ins []loop.CallerIn
+	ins []loop.LooperIn
 }
 
 func init() { loop.Register(&n1{}, "node1") }
 
-func (n *n1) NewLoopIn() loop.CallerIn                                           { return &N1In{} }
-func (n *n1) NewLoopOut() loop.CallerOut                                         { return &n1Out{} }
-func (n *n1) LoopInputOutput(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) {}
+func (n *n1) MakeLoopIn() loop.LooperIn                                          { return &N1In{} }
+func (n *n1) MakeLoopOut() loop.LooperOut                                        { return &n1Out{} }
+func (n *n1) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {}
 
 func init() {
 	loop.CliAdd(&cli.Command{
