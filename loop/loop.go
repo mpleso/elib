@@ -20,7 +20,7 @@ type Node struct {
 	active            bool
 	oneShot           bool
 	work              chan Worker
-	dataCaller        DataCaller
+	dataCaller        inOutLooper
 	activePollerIndex uint
 	initOnce          sync.Once
 	initWg            sync.WaitGroup
@@ -82,8 +82,8 @@ type Exiter interface {
 type Loop struct {
 	eventPollers           []EventPoller
 	eventHandlers          []EventHandler
-	dataPollers            []DataPoller
-	dataNodes              []dataOutNoder
+	dataPollers            []inLooper
+	dataNodes              []Noder
 	workers                []Worker
 	loopIniters            []Initer
 	loopExiters            []Exiter
@@ -236,7 +236,7 @@ func (l *Loop) startPollers() {
 	}
 }
 
-func (l *Loop) dataPoll(p DataPoller) {
+func (l *Loop) dataPoll(p inLooper) {
 	c := p.GetNode()
 	for {
 		<-c.fromLoop
@@ -246,13 +246,13 @@ func (l *Loop) dataPoll(p DataPoller) {
 		}
 		n := &ap.activeNodes[c.index]
 		ap.currentNode = n
-		p.Poll(l, n.callerOut)
+		p.LoopInput(l, n.callerOut)
 		n.out.call(l, ap)
 		c.toLoop <- struct{}{}
 	}
 }
 
-func (l *Loop) startDataPoller(n DataPoller) {
+func (l *Loop) startDataPoller(n inLooper) {
 	c := n.GetNode()
 	c.toLoop = make(chan struct{}, 1)
 	c.fromLoop = make(chan struct{}, 1)
@@ -373,26 +373,39 @@ func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 		}
 		nOK++
 	}
-	if d, isIO := n.(dataOutNoder); isIO {
+	if d, isOut := n.(outNoder); isOut {
 		nok := 0
-		if q, ok := d.(DataPoller); ok {
+		if _, ok := d.(inOutLooper); ok {
+			nok++
+		}
+		if q, ok := d.(inLooper); ok {
 			l.dataPollers = append(l.dataPollers, q)
 			if start {
 				l.startDataPoller(q)
 			}
 			nok++
 		}
-		if _, ok := d.(DataCaller); ok {
+		if nok > 0 {
+			x.index = uint(len(l.dataNodes))
+			l.dataNodes = append(l.dataNodes, d)
+		} else {
+			panic(fmt.Errorf("%s: missing LoopInput/LoopInputOutput method", x.name))
+		}
+		nOK += nok
+	} else if d, isIn := n.(inNoder); isIn {
+		nok := 0
+		if _, ok := n.(outLooper); ok {
 			nok++
 		}
 		if nok > 0 {
 			x.index = uint(len(l.dataNodes))
 			l.dataNodes = append(l.dataNodes, d)
 		} else {
-			panic("node missing Poll and/or Call method")
+			panic(fmt.Errorf("%s: missing LoopOutput method", x.name))
 		}
 		nOK += nok
 	}
+
 	if p, ok := n.(Worker); ok {
 		l.workers = append(l.workers, p)
 		if start {

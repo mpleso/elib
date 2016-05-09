@@ -29,7 +29,7 @@ func (s *nodeStats) clocksPerVector() (v float64) {
 type activeNode struct {
 	// Index in activePoller.activeNodes and also loop.dataNodes.
 	index      uint32
-	dataCaller DataCaller
+	dataCaller inOutLooper
 	callerOut  CallerOut
 	out        *Out
 	outIns     []CallerIn
@@ -61,7 +61,7 @@ func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
 	if ap.nodeIndexByInType == nil {
 		ap.nodeIndexByInType = make(map[reflect.Type]uint32)
 	}
-	inType := reflect.TypeOf(a.dataCaller.NewIn())
+	inType := reflect.TypeOf(a.dataCaller.NewLoopIn())
 	if _, ok := ap.nodeIndexByInType[inType]; ok {
 		err = fmt.Errorf("duplicate nodes handle input type %T", inType)
 		return
@@ -94,9 +94,11 @@ func (ap *activePoller) init(l *Loop, api uint) {
 		n := l.dataNodes[ni]
 
 		a.index = uint32(ni)
-		a.callerOut = n.NewOut()
-		a.out = a.callerOut.GetOut()
-		if d, ok := n.(DataCaller); ok {
+		if d, ok := n.(outNoder); ok {
+			a.callerOut = d.NewLoopOut()
+			a.out = a.callerOut.GetOut()
+		}
+		if d, ok := n.(inOutLooper); ok {
 			a.dataCaller = d
 		}
 
@@ -190,7 +192,7 @@ func (f *Out) call(l *Loop, a *activePoller) {
 
 		// Call next node.
 		a.currentNode = next
-		next.dataCaller.Call(l, prevNode.outIns[xi], next.callerOut)
+		next.dataCaller.LoopInputOutput(l, prevNode.outIns[xi], next.callerOut)
 
 		t := cpu.TimeNow()
 		next.calls++
@@ -220,22 +222,39 @@ type CallerIn interface {
 	GetIn() *In
 }
 
-type dataOutNoder interface {
+type outer interface {
+	NewLoopOut() CallerOut
+}
+
+type iner interface {
+	NewLoopIn() CallerIn
+}
+
+type inNoder interface {
 	Noder
-	NewOut() CallerOut
+	iner
 }
 
-type dataInOutNoder interface {
-	dataOutNoder
-	NewIn() CallerIn
+type outNoder interface {
+	Noder
+	outer
 }
 
-type DataPoller interface {
-	dataOutNoder
-	Poll(l *Loop, o CallerOut)
+type inLooper interface {
+	Noder
+	outer
+	LoopInput(l *Loop, o CallerOut)
 }
 
-type DataCaller interface {
-	dataInOutNoder
-	Call(l *Loop, i CallerIn, o CallerOut)
+type outLooper interface {
+	Noder
+	iner
+	LoopOutput(l *Loop, i CallerIn)
+}
+
+type inOutLooper interface {
+	Noder
+	iner
+	outer
+	LoopInputOutput(l *Loop, i CallerIn, o CallerOut)
 }

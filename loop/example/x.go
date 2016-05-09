@@ -27,11 +27,11 @@ var node0 = &n0{}
 
 func init() { loop.Register(node0, "node0") }
 
-func (n *n0) NewIn() loop.CallerIn                                    { return &N0In{} }
-func (n *n0) NewOut() loop.CallerOut                                  { return &n0Out{} }
-func (n *n0) Poll(l *loop.Loop, out loop.CallerOut)                   { call(l, n, (*N0In)(nil), out) }
-func (n *n0) Call(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) { call(l, n, in, out) }
-func (n *n0) LoopInit(l *loop.Loop)                                   { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
+func (n *n0) NewLoopIn() loop.CallerIn                                           { return &N0In{} }
+func (n *n0) NewLoopOut() loop.CallerOut                                         { return &n0Out{} }
+func (n *n0) LoopInput(l *loop.Loop, out loop.CallerOut)                         { call(l, n, (*N0In)(nil), out) }
+func (n *n0) LoopInputOutput(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) { call(l, n, in, out) }
+func (n *n0) LoopInit(l *loop.Loop)                                              { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
 
 func call(l *loop.Loop, n *n0, ci loop.CallerIn, co loop.CallerOut) {
 	in, out := ci.(*N0In), co.(*n0Out)
@@ -69,9 +69,9 @@ type n1Out struct {
 
 func init() { loop.Register(&n1{}, "node1") }
 
-func (n *n1) NewIn() loop.CallerIn                                    { return &N1In{} }
-func (n *n1) NewOut() loop.CallerOut                                  { return &n1Out{} }
-func (n *n1) Call(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) {}
+func (n *n1) NewLoopIn() loop.CallerIn                                           { return &N1In{} }
+func (n *n1) NewLoopOut() loop.CallerOut                                         { return &n1Out{} }
+func (n *n1) LoopInputOutput(l *loop.Loop, in loop.CallerIn, out loop.CallerOut) {}
 
 func init() {
 	loop.CliAdd(&cli.Command{
@@ -79,7 +79,6 @@ func init() {
 		ShortHelp: "a short help",
 		Action: func(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 			node0.ActivateOnce(true)
-			fmt.Fprintf(w, "%T\n", c)
 		},
 	})
 }
