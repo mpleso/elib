@@ -20,21 +20,24 @@ type N0In struct {
 
 type n0Out struct {
 	loop.Out
-	N0In
+	In N0In
 }
 
 var node0 = &n0{}
 
 func init() { loop.Register(node0, "node0") }
 
-func (n *n0) MakeLoopIn() loop.LooperIn                                          { return &N0In{} }
-func (n *n0) MakeLoopOut() loop.LooperOut                                        { return &n0Out{} }
-func (n *n0) LoopInput(l *loop.Loop, out loop.LooperOut)                         { call(l, n, (*N0In)(nil), out) }
-func (n *n0) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) { call(l, n, in, out) }
-func (n *n0) LoopInit(l *loop.Loop)                                              { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
+func (n *n0) MakeLoopIn() loop.LooperIn   { return &N0In{} }
+func (n *n0) MakeLoopOut() loop.LooperOut { return &n0Out{} }
+func (n *n0) LoopInput(l *loop.Loop, out loop.LooperOut) {
+	n.call(l, (*N0In)(nil), &out.(*n0Out).In)
+}
+func (n *n0) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {
+	n.call(l, in.(*N0In), &out.(*n0Out).In)
+}
+func (n *n0) LoopInit(l *loop.Loop) { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
 
-func call(l *loop.Loop, n *n0, ci loop.LooperIn, co loop.LooperOut) {
-	in, out := ci.(*N0In), co.(*n0Out)
+func (n *n0) call(l *loop.Loop, in *N0In, outIn *N0In) {
 	done := n.calls >= 10
 	if !done {
 		nf := uint(len(in.data))
@@ -42,11 +45,10 @@ func call(l *loop.Loop, n *n0, ci loop.LooperIn, co loop.LooperOut) {
 			nf = in.Len()
 		}
 		for i := uint(0); i < nf; i++ {
-			out.data[i] = n.calls
+			outIn.data[i] = n.calls
 		}
-		out.N0In.SetLen(l, nf)
+		outIn.SetLen(l, nf)
 	}
-	l.Logf("%s: poll %p %d\n", n.Name(), out, n.calls)
 	if done {
 		n.Activate(false)
 		n.calls = 0
@@ -55,23 +57,29 @@ func call(l *loop.Loop, n *n0, ci loop.LooperIn, co loop.LooperOut) {
 	}
 }
 
-type n1 struct{ loop.Node }
+type n1 n0
 
-type N1In struct {
-	loop.In
-	data [loop.V]uint
-}
+var node1 = &n1{}
+
+type N1In N0In
 
 type n1Out struct {
 	loop.Out
-	ins []loop.LooperIn
+	ins []N0In
 }
 
-func init() { loop.Register(&n1{}, "node1") }
+func init() { loop.Register(node1, "node1") }
 
-func (n *n1) MakeLoopIn() loop.LooperIn                                          { return &N1In{} }
-func (n *n1) MakeLoopOut() loop.LooperOut                                        { return &n1Out{} }
-func (n *n1) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {}
+func (n *n1) MakeLoopIn() loop.LooperIn   { return &N1In{} }
+func (n *n1) MakeLoopOut() loop.LooperOut { o := &n1Out{}; o.ins = make([]N0In, 1); return o }
+
+func (n *n1) LoopInit(l *loop.Loop) {
+	l.AddNext(node1, node1)
+}
+
+func (n *n1) LoopInput(l *loop.Loop, out loop.LooperOut) {
+	(*n0)(n).call(l, (*N0In)(nil), &out.(*n1Out).ins[0])
+}
 
 func init() {
 	loop.CliAdd(&cli.Command{
@@ -79,6 +87,7 @@ func init() {
 		ShortHelp: "a short help",
 		Action: func(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 			node0.ActivateOnce(true)
+			node1.ActivateOnce(true)
 		},
 	})
 }

@@ -47,9 +47,9 @@ func (c *LoopCli) LoopExit(l *Loop) {
 }
 
 func CliAdd(c *cli.Command) { Cli.Main.AddCommand(c) }
-func (l *Loop) Logf(format string, args ...interface{}) {
-	fmt.Fprintf(&Cli.Main, format, args...)
-}
+
+func (l *Loop) Logf(format string, args ...interface{})   { fmt.Fprintf(&Cli.Main, format, args...) }
+func (l *Loop) Fatalf(format string, args ...interface{}) { panic(fmt.Errorf(format, args...)) }
 
 type rtNode struct {
 	Name    string  `format:"%-30s"`

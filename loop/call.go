@@ -35,6 +35,7 @@ type activeNode struct {
 	looperOut   LooperOut
 	out         *Out
 	outIns      []LooperIn
+	outSlice    *reflect.Value
 
 	nodeStats
 	statsLastClear nodeStats
@@ -48,7 +49,28 @@ type activePoller struct {
 	nodeIndexByInType map[reflect.Type]uint32
 }
 
-func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
+var looperInType = reflect.TypeOf((*LooperIn)(nil)).Elem()
+
+func asLooperIn(v reflect.Value) (in LooperIn, err error) {
+	if reflect.PtrTo(v.Type()).Implements(looperInType) {
+		if a := v.Addr(); a.CanInterface() {
+			in = a.Interface().(LooperIn)
+		} else {
+			err = fmt.Errorf("value must be exported")
+		}
+	}
+	return
+}
+
+func asLooperInSlice(v reflect.Value) (slice reflect.Value, ok bool) {
+	if ok = v.Kind() == reflect.Slice &&
+		reflect.PtrTo(v.Type().Elem()).Implements(looperInType); ok {
+		slice = v
+	}
+	return
+}
+
+func (a *activeNode) analyzeOut(l *Loop, ap *activePoller) (err error) {
 	ptr := reflect.TypeOf(a.looperOut)
 	if ptr.Kind() != reflect.Ptr {
 		err = fmt.Errorf("not pointer")
@@ -70,13 +92,36 @@ func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
 	}
 	ap.nodeIndexByInType[inType] = a.index
 
-	tIn := reflect.TypeOf((*LooperIn)(nil)).Elem()
 	v := reflect.ValueOf(a.looperOut).Elem()
+	ins := []LooperIn{}
+	inSlices := []reflect.Value{}
 	for i := 0; i < s.NumField(); i++ {
-		if reflect.PtrTo(s.Field(i).Type).Implements(tIn) {
-			ini := v.Field(i).Addr().Interface().(LooperIn)
-			a.addNext(ini)
+		vi := v.Field(i)
+		var ini LooperIn
+		ini, err = asLooperIn(vi)
+		if err != nil {
+			err = fmt.Errorf("loop.LooperIn field `%s' must be exported", s.Field(i).Name)
+			return
 		}
+		if ini != nil {
+			ins = append(ins, ini)
+		} else if s, ok := asLooperInSlice(vi); ok {
+			inSlices = append(inSlices, s)
+		}
+	}
+	if len(ins)+len(inSlices) == 0 {
+		err = fmt.Errorf("data node has no inputs")
+		return
+	}
+	if len(inSlices) > 1 {
+		err = fmt.Errorf("data node has more than one slice input")
+		return
+	}
+	for i := range ins {
+		a.addNext(ins[i])
+	}
+	if len(inSlices) > 0 {
+		a.outSlice = &inSlices[0]
 	}
 	return
 }
@@ -84,8 +129,24 @@ func (a *activeNode) analyzeOut(ap *activePoller) (err error) {
 func (a *activeNode) addNext(i LooperIn) {
 	in := i.GetIn()
 	in.nextIndex = uint32(len(a.outIns))
-	a.outIns = append(a.outIns, i)
+	if a.outSlice != nil {
+		*a.outSlice = reflect.Append(*a.outSlice, reflect.ValueOf(i))
+	} else {
+		a.outIns = append(a.outIns, i)
+	}
 }
+
+func (l *Loop) AddNext(r outNoder, next inNoder) (i uint) {
+	n := r.GetNode()
+	i = uint(len(n.outIns))
+	li := next.MakeLoopIn()
+	n.outIns = append(n.outIns, li)
+	for i := range l.activePollers {
+		l.activePollers[i].activeNodes[n.index].addNext(li)
+	}
+	return
+}
+func AddNext(r outNoder, n inNoder) uint { return defaultLoop.AddNext(r, n) }
 
 func (ap *activePoller) init(l *Loop, api uint) {
 	nNodes := uint(len(l.dataNodes))
@@ -107,9 +168,10 @@ func (ap *activePoller) init(l *Loop, api uint) {
 		if d, ok := n.(outLooper); ok {
 			a.outLooper = d
 		}
-
-		if err := a.analyzeOut(ap); err != nil {
-			panic(err)
+		if a.looperOut != nil {
+			if err := a.analyzeOut(l, ap); err != nil {
+				l.Fatalf("%s: %s", nodeName(n), err)
+			}
 		}
 	}
 

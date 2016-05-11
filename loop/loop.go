@@ -24,11 +24,13 @@ type Node struct {
 	activePollerIndex uint
 	initOnce          sync.Once
 	initWg            sync.WaitGroup
+	outIns            []LooperIn
 }
 
 func (n *Node) GetNode() *Node { return n }
 func (n *Node) Index() uint    { return n.index }
 func (n *Node) Name() string   { return n.name }
+func nodeName(n Noder) string  { return n.GetNode().name }
 
 func (l *Loop) countActive(enable bool) {
 	if enable {
@@ -84,6 +86,7 @@ type Loop struct {
 	eventHandlers          []EventHandler
 	dataPollers            []inLooper
 	dataNodes              []Noder
+	dataNodeByName         map[string]Noder
 	workers                []Worker
 	loopIniters            []Initer
 	loopExiters            []Exiter
@@ -359,6 +362,16 @@ func (l *Loop) Run() {
 	l.doExit()
 }
 
+func (l *Loop) addDataNode(r Noder) {
+	n := r.GetNode()
+	n.index = uint(len(l.dataNodes))
+	l.dataNodes = append(l.dataNodes, r)
+	if l.dataNodeByName == nil {
+		l.dataNodeByName = make(map[string]Noder)
+	}
+	l.dataNodeByName[n.name] = r
+}
+
 func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 	x := n.GetNode()
 	x.name = fmt.Sprintf(format, args...)
@@ -386,24 +399,18 @@ func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 			nok++
 		}
 		if nok > 0 {
-			x.index = uint(len(l.dataNodes))
-			l.dataNodes = append(l.dataNodes, d)
+			l.addDataNode(n)
 		} else {
 			panic(fmt.Errorf("%s: missing LoopInput/LoopInputOutput method", x.name))
 		}
 		nOK += nok
-	} else if d, isIn := n.(inNoder); isIn {
-		nok := 0
+	} else if _, isIn := n.(inNoder); isIn {
 		if _, ok := n.(outLooper); ok {
-			nok++
-		}
-		if nok > 0 {
-			x.index = uint(len(l.dataNodes))
-			l.dataNodes = append(l.dataNodes, d)
+			l.addDataNode(n)
+			nOK += 1
 		} else {
 			panic(fmt.Errorf("%s: missing LoopOutput method", x.name))
 		}
-		nOK += nok
 	}
 
 	if p, ok := n.(Worker); ok {
