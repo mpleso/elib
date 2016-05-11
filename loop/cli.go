@@ -68,8 +68,7 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 	for i := range l.dataNodes {
 		n := l.dataNodes[i].GetNode()
 		var s nodeStats
-		for j := range l.activePollers {
-			a := &l.activePollers[j]
+		for _, a := range l.activePollers {
 			if a.activeNodes != nil {
 				s.add(&a.activeNodes[i])
 			}
@@ -87,8 +86,7 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 }
 
 func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
-	for i := range l.activePollers {
-		a := &l.activePollers[i]
+	for _, a := range l.activePollers {
 		for j := range a.activeNodes {
 			a.activeNodes[j].statsLastClear = a.activeNodes[j].nodeStats
 		}

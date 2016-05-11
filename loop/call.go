@@ -43,6 +43,7 @@ type activeNode struct {
 
 type activePoller struct {
 	index             uint16
+	timeNow           cpu.Time
 	pollerNode        *Node
 	currentNode       *activeNode
 	activeNodes       []activeNode
@@ -122,6 +123,10 @@ func (a *activeNode) analyzeOut(l *Loop, ap *activePoller) (err error) {
 	}
 	if len(inSlices) > 0 {
 		a.outSlice = &inSlices[0]
+		n := l.dataNodes[a.index].GetNode()
+		for i := range n.outIns {
+			a.addNext(n.outIns[i])
+		}
 	}
 	return
 }
@@ -129,11 +134,15 @@ func (a *activeNode) analyzeOut(l *Loop, ap *activePoller) (err error) {
 func (a *activeNode) addNext(i LooperIn) {
 	in := i.GetIn()
 	in.nextIndex = uint32(len(a.outIns))
+	oi := i
 	if a.outSlice != nil {
-		*a.outSlice = reflect.Append(*a.outSlice, reflect.ValueOf(i))
-	} else {
-		a.outIns = append(a.outIns, i)
+		as := *a.outSlice
+		ai := int(in.nextIndex)
+		as = reflect.Append(as, reflect.ValueOf(i).Elem())
+		oi = as.Index(ai).Addr().Interface().(LooperIn)
+		(*a.outSlice).Set(as)
 	}
+	a.outIns = append(a.outIns, oi)
 }
 
 func (l *Loop) AddNext(r outNoder, next inNoder) (i uint) {
@@ -179,8 +188,11 @@ func (ap *activePoller) init(l *Loop, api uint) {
 		a := &ap.activeNodes[ni]
 		a.out.alloc(uint(len(a.outIns)))
 		for xi := range a.outIns {
-			in := reflect.TypeOf(a.outIns[xi])
-			a.out.nextNodes[xi] = ap.nodeIndexByInType[in]
+			oi := a.outIns[xi]
+			inType := reflect.TypeOf(oi)
+			a.out.nextNodes[xi] = ap.nodeIndexByInType[inType]
+			i := oi.GetIn()
+			i.activeIndex = ap.index
 		}
 	}
 }
@@ -228,8 +240,7 @@ func (f *Out) call(l *Loop, a *activePoller) {
 	if len(f.pending) == 0 {
 		return
 	}
-	var t0 cpu.Time
-	t0 = cpu.TimeNow()
+	t0 := a.timeNow
 	pendingIndex := 0
 	prevNode := a.currentNode
 	for {
@@ -274,6 +285,7 @@ func (f *Out) call(l *Loop, a *activePoller) {
 		t0 = t
 	}
 	f.pending = f.pending[:0]
+	a.timeNow = t0
 }
 
 func (o *Out) GetOut() *Out { return o }

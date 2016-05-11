@@ -65,20 +65,23 @@ type N1In N0In
 
 type n1Out struct {
 	loop.Out
-	ins []N0In
+	Ins []N1In
 }
 
 func init() { loop.Register(node1, "node1") }
 
 func (n *n1) MakeLoopIn() loop.LooperIn   { return &N1In{} }
-func (n *n1) MakeLoopOut() loop.LooperOut { o := &n1Out{}; o.ins = make([]N0In, 1); return o }
+func (n *n1) MakeLoopOut() loop.LooperOut { return &n1Out{} }
 
 func (n *n1) LoopInit(l *loop.Loop) {
 	l.AddNext(node1, node1)
 }
 
 func (n *n1) LoopInput(l *loop.Loop, out loop.LooperOut) {
-	(*n0)(n).call(l, (*N0In)(nil), &out.(*n1Out).ins[0])
+	(*n0)(n).call(l, (*N0In)(nil), (*N0In)(&out.(*n1Out).Ins[0]))
+}
+func (n *n1) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {
+	(*n0)(n).call(l, (*N0In)(in.(*N1In)), (*N0In)(&out.(*n1Out).Ins[0]))
 }
 
 func init() {

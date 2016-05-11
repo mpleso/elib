@@ -83,7 +83,7 @@ type Loop struct {
 	dataNodeByName         map[string]Noder
 	loopIniters            []Initer
 	loopExiters            []Exiter
-	activePollers          []activePoller
+	activePollers          []*activePoller
 	nActivePollers         uint32
 	events                 chan loopEvent
 	eventPool              event.Pool
@@ -233,12 +233,13 @@ func (l *Loop) dataPoll(p inLooper) {
 	c := p.GetNode()
 	for {
 		<-c.fromLoop
-		ap := &l.activePollers[c.activePollerIndex]
+		ap := l.activePollers[c.activePollerIndex]
 		if ap.activeNodes == nil {
 			ap.init(l, c.activePollerIndex)
 		}
 		n := &ap.activeNodes[c.index]
 		ap.currentNode = n
+		ap.timeNow = cpu.TimeNow()
 		p.LoopInput(l, n.looperOut)
 		n.out.call(l, ap)
 		c.toLoop <- struct{}{}
@@ -253,8 +254,11 @@ func (l *Loop) startDataPoller(n inLooper) {
 }
 
 func (l *Loop) doPollers() {
-	if n := len(l.dataPollers); cap(l.activePollers) < n {
-		l.activePollers = make([]activePoller, n)
+	if l.activePollers == nil {
+		l.activePollers = make([]*activePoller, len(l.dataPollers))
+		for i := range l.activePollers {
+			l.activePollers[i] = &activePoller{}
+		}
 	}
 	nActive := uint(0)
 	for _, p := range l.dataPollers {
