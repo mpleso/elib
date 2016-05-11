@@ -19,7 +19,6 @@ type Node struct {
 	eventVec          event.ActorVec
 	active            bool
 	oneShot           bool
-	work              chan Worker
 	dataCaller        inOutLooper
 	activePollerIndex uint
 	initOnce          sync.Once
@@ -67,11 +66,6 @@ type EventHandler interface {
 	EventHandler()
 }
 
-type Worker interface {
-	Noder
-	Work(l *Loop)
-}
-
 type Initer interface {
 	Noder
 	LoopInit(l *Loop)
@@ -87,7 +81,6 @@ type Loop struct {
 	dataPollers            []inLooper
 	dataNodes              []Noder
 	dataNodeByName         map[string]Noder
-	workers                []Worker
 	loopIniters            []Initer
 	loopExiters            []Exiter
 	activePollers          []activePoller
@@ -234,9 +227,6 @@ func (l *Loop) startPollers() {
 	for _, n := range l.dataPollers {
 		l.startDataPoller(n)
 	}
-	for _, n := range l.workers {
-		l.startWorker(n)
-	}
 }
 
 func (l *Loop) dataPoll(p inLooper) {
@@ -260,26 +250,6 @@ func (l *Loop) startDataPoller(n inLooper) {
 	c.toLoop = make(chan struct{}, 1)
 	c.fromLoop = make(chan struct{}, 1)
 	go l.dataPoll(n)
-}
-
-func (l *Loop) AddWork(n *Node, w Worker) {
-	l.wg.Add(1)
-	n.work <- w
-}
-
-func (l *Loop) worker(w Worker) {
-	c := w.GetNode()
-	for {
-		w := <-c.work
-		w.Work(l)
-		l.wg.Add(-1)
-	}
-}
-
-func (l *Loop) startWorker(n Worker) {
-	c := n.GetNode()
-	c.work = make(chan Worker, 256)
-	go l.worker(n)
 }
 
 func (l *Loop) doPollers() {
@@ -411,14 +381,6 @@ func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 		} else {
 			panic(fmt.Errorf("%s: missing LoopOutput method", x.name))
 		}
-	}
-
-	if p, ok := n.(Worker); ok {
-		l.workers = append(l.workers, p)
-		if start {
-			l.startWorker(p)
-		}
-		nOK++
 	}
 	if p, ok := n.(Initer); ok {
 		l.loopIniters = append(l.loopIniters, p)
