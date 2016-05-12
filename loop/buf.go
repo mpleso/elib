@@ -47,9 +47,16 @@ func (r *Ref) DataSlice() (b []byte) {
 }
 
 func (r *Ref) SetLen(l uint) { r.dataLen = uint16(l) }
-func (r *Ref) Advance(i int) {
-	r.dataOffset = uint16(int(r.dataOffset) + i)
+func (r *Ref) Advance(i int) (oldDataOffset int) {
+	oldDataOffset = int(r.dataOffset)
+	r.dataOffset = uint16(oldDataOffset + i)
 	r.dataLen = uint16(int(r.dataLen) - i)
+	return
+}
+func (r *Ref) Restore(oldDataOffset int) {
+	r.dataOffset = uint16(oldDataOffset)
+	Δ := int(r.dataOffset) - oldDataOffset
+	r.dataLen = uint16(int(r.dataLen) - Δ)
 }
 
 //go:generate gentemplate -d Package=loop -id Ref -d VecType=RefVec -d Type=Ref github.com/platinasystems/elib/vec.tmpl
@@ -138,10 +145,10 @@ var DefaultBufferTemplate = &BufferTemplate{
 }
 var DefaultBufferPool = NewBufferPool(DefaultBufferTemplate)
 
-func (p *BufferPool) Init(t *BufferTemplate) {
-	p.BufferTemplate = *t
+func (p *BufferPool) Init() {
+	t := &p.BufferTemplate
 	if len(t.Data) > 0 {
-		p.Ref.dataLen = uint16(len(p.Data))
+		t.Ref.dataLen = uint16(len(t.Data))
 	}
 	p.Size = uint(elib.Word(p.Size).RoundCacheLine())
 	p.sizeIncludingOverhead = p.bufferSize()
@@ -150,7 +157,8 @@ func (p *BufferPool) Init(t *BufferTemplate) {
 
 func NewBufferPool(t *BufferTemplate) (p *BufferPool) {
 	p = &BufferPool{}
-	p.Init(t)
+	p.BufferTemplate = *t
+	p.Init()
 	return
 }
 

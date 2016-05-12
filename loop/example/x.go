@@ -3,86 +3,87 @@ package main
 import (
 	"github.com/platinasystems/elib/cli"
 	"github.com/platinasystems/elib/loop"
+	"github.com/platinasystems/vnet"
+	"github.com/platinasystems/vnet/ethernet"
+	"github.com/platinasystems/vnet/ip"
+	"github.com/platinasystems/vnet/ip4"
 
 	"fmt"
 )
 
-type n0 struct {
+type myNode struct {
 	loop.Node
-	calls uint
+	myErr [n_error]loop.ErrorRef
+	pool  loop.BufferPool
 }
 
-type N0In struct {
-	loop.In
-	data [loop.V]uint
-}
+var MyNode = &myNode{}
 
-type n0Out struct {
-	loop.Out
-	In N0In
-}
+func init() { loop.Register(MyNode, "my-node") }
 
-var node0 = &n0{}
-
-func init() { loop.Register(node0, "node0") }
-
-func (n *n0) MakeLoopIn() loop.LooperIn   { return &N0In{} }
-func (n *n0) MakeLoopOut() loop.LooperOut { return &n0Out{} }
-func (n *n0) LoopInput(l *loop.Loop, out loop.LooperOut) {
-	n.call(l, (*N0In)(nil), &out.(*n0Out).In)
-}
-func (n *n0) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {
-	n.call(l, in.(*N0In), &out.(*n0Out).In)
-}
-func (n *n0) call(l *loop.Loop, in *N0In, outIn *N0In) {
-	done := n.calls >= 10
-	if !done {
-		nf := uint(len(in.data))
-		if in != nil {
-			nf = in.Len()
-		}
-		for i := uint(0); i < nf; i++ {
-			outIn.data[i] = n.calls
-		}
-		outIn.SetLen(l, nf)
-	}
-	if done {
-		n.Activate(false)
-		n.calls = 0
-	} else {
-		n.calls++
-	}
-}
-
-type n1 struct {
-	loop.Node
-	calls uint
-	myErr [2]loop.ErrorRef
-}
-
-var node1 = &n1{}
-
-type n1Out struct {
+type out struct {
 	loop.Out
 	Outs []loop.RefIn
 }
 
-func init() { loop.Register(node1, "node1") }
+func (n *myNode) MakeLoopOut() loop.LooperOut { return &out{} }
 
-func (n *n1) MakeLoopOut() loop.LooperOut { return &n1Out{} }
+const (
+	error_one = iota
+	error_two
+	n_error
+)
 
-func (n *n1) LoopInit(l *loop.Loop) {
-	l.AddNext(node1, loop.ErrorNode)
-	node1.myErr[0] = node1.NewError("error one")
-	node1.myErr[1] = node1.NewError("error two")
+var errorStrings = [...]string{
+	error_one: "error one",
+	error_two: "error two",
 }
 
-func (n *n1) LoopInput(l *loop.Loop, out loop.LooperOut) {
-	o := out.(*n1Out)
+func (n *myNode) LoopInit(l *loop.Loop) {
+	l.AddNext(n, loop.ErrorNode)
+	for i := range errorStrings {
+		n.myErr[i] = n.NewError(errorStrings[i])
+	}
+	t := &n.pool.BufferTemplate
+	*t = *loop.DefaultBufferTemplate
+	t.Size = 2048
+	t.Data = vnet.MakePacket(
+		&ethernet.Header{
+			Type: ethernet.IP4.FromHost(),
+			Src:  ethernet.Address{0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5},
+			Dst:  ethernet.Address{0xea, 0xeb, 0xec, 0xed, 0xee, 0xef},
+		},
+		&ip4.Header{
+			Protocol: ip.UDP,
+			Src:      ip4.Address{0x1, 0x2, 0x3, 0x4},
+			Dst:      ip4.Address{0x5, 0x6, 0x7, 0x8},
+			Tos:      0,
+			Ttl:      255,
+			Ip_version_and_header_length: 0x45,
+			Fragment_id:                  vnet.Uint16(0x1234).FromHost(),
+			Flags_and_fragment_offset:    ip4.DontFragment.FromHost(),
+		},
+		&vnet.IncrementingPayload{Count: t.Size - ethernet.HeaderBytes - ip4.HeaderBytes},
+	)
+	n.pool.Init()
+}
+
+func (n *myNode) LoopInput(l *loop.Loop, lo loop.LooperOut) {
+	o := lo.(*out)
 	toErr := &o.Outs[0]
-	toErr.AllocRefs()
-	for i := range toErr.Refs {
-		toErr.Refs[i].Err = node1.myErr[i%2]
+	toErr.AllocPoolRefs(&n.pool)
+	rs := toErr.Refs[:]
+	for i := range rs {
+		r := &rs[i]
+		eh := ethernet.GetPacketHeader(r)
+		l.Logf("%s %d: %s\n", n.Name(), i, eh)
+		save := r.Advance(ethernet.HeaderBytes)
+		ih := ip4.GetHeader(r)
+		l.Logf("%d: %s\n", i, ih)
+		r.Restore(save)
+		eh = ethernet.GetHeader(r)
+		l.Logf("%d: %s\n", i, eh)
+		r.Err = n.myErr[i%n_error]
 	}
 	toErr.SetLen(l, uint(len(toErr.Refs)))
 }
@@ -92,7 +93,6 @@ func init() {
 		Name:      "a",
 		ShortHelp: "a short help",
 		Action: func(c cli.Commander, w cli.Writer, s *cli.Scanner) {
-			node0.ActivateOnce(true)
 			n := uint(1)
 			if s.Peek() != cli.EOF {
 				if err := s.Parse("%d", &n); err != nil {
@@ -101,9 +101,9 @@ func init() {
 				}
 			}
 			if n == 0 {
-				node1.Activate(true)
+				MyNode.Activate(true)
 			} else {
-				node1.ActivateCount(n)
+				MyNode.ActivateCount(n)
 			}
 		},
 	})
