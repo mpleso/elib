@@ -119,6 +119,9 @@ func (l *Loop) showErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 		for _, t := range en.threads {
 			if t != nil {
 				c += t.counts[i]
+				if i < len(t.countsLastClear) {
+					c -= t.countsLastClear[i]
+				}
 			}
 		}
 		if c > 0 {
