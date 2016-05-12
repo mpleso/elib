@@ -87,8 +87,13 @@ type BufferPool struct {
 	// References to buffers in this pool.
 	refs RefVec
 
+	// DMA memory chunks used by this pool.
 	memChunkIDs []elib.Index
 }
+
+// Method to over-ride to initialize refs for this buffer pool.
+// This is used for example to set packet lengths, adjust packet fields, etc.
+func (p *BufferPool) InitRefs(refs []Ref) {}
 
 func isPrime(i uint) bool {
 	max := uint(math.Sqrt(float64(i)))
@@ -120,10 +125,11 @@ type BufferTemplate struct {
 
 	sizeIncludingOverhead uint
 
-	// If non-nil buffers will be initialized with this data.
-	Data []byte
 	Ref
 	Buffer
+
+	// If non-nil buffers will be initialized with this data.
+	Data []byte
 }
 
 var DefaultBufferTemplate = &BufferTemplate{
@@ -132,8 +138,7 @@ var DefaultBufferTemplate = &BufferTemplate{
 }
 var DefaultBufferPool = NewBufferPool(DefaultBufferTemplate)
 
-func NewBufferPool(t *BufferTemplate) (p *BufferPool) {
-	p = &BufferPool{}
+func (p *BufferPool) Init(t *BufferTemplate) {
 	p.BufferTemplate = *t
 	if len(t.Data) > 0 {
 		p.Ref.dataLen = uint16(len(p.Data))
@@ -141,6 +146,11 @@ func NewBufferPool(t *BufferTemplate) (p *BufferPool) {
 	p.Size = uint(elib.Word(p.Size).RoundCacheLine())
 	p.sizeIncludingOverhead = p.bufferSize()
 	p.Size = p.sizeIncludingOverhead - overheadBytes
+}
+
+func NewBufferPool(t *BufferTemplate) (p *BufferPool) {
+	p = &BufferPool{}
+	p.Init(t)
 	return
 }
 
@@ -157,10 +167,10 @@ func (p *BufferPool) Del() {
 func (p *BufferPool) AllocRefs(refs []Ref) {
 	var got, want uint
 	if got, want = uint(len(p.refs)), uint(len(refs)); got < want {
-		n := uint(elib.RoundPow2(elib.Word(want-got), 1<<8))
+		n := uint(elib.RoundPow2(elib.Word(want-got), 2*V))
 		b := p.sizeIncludingOverhead
 		_, id, offset, _ := hw.DmaAlloc(n * b)
-		ri := uint(len(p.refs))
+		ri := got
 		p.refs.Resize(n)
 		p.memChunkIDs = append(p.memChunkIDs, id)
 		// Refs are allocated from end of refs so we put smallest offsets there.
@@ -177,13 +187,15 @@ func (p *BufferPool) AllocRefs(refs []Ref) {
 			}
 		}
 		got += n
+		// Possibly initialize/adjust newly made buffers.
+		p.InitRefs(p.refs[got-n : got])
 	}
 
 	copy(refs, p.refs[got-want:got])
 	p.refs = p.refs[:got-want]
 }
 
-// Return all buffers to freelist and reset for next usage.
+// Return all buffers to pool and reset for next usage.
 func (p *BufferPool) FreeRefs(toFree []Ref) {
 	n := uint(len(toFree))
 	l := uint(len(p.refs))
@@ -217,6 +229,8 @@ func (p *BufferPool) FreeRefs(toFree []Ref) {
 		i += 1
 		n -= 1
 	}
+
+	p.InitRefs(p.refs[l:])
 }
 
 type RefIn struct {
