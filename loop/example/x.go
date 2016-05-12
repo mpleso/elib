@@ -5,7 +5,6 @@ import (
 	"github.com/platinasystems/elib/loop"
 
 	"fmt"
-	"time"
 )
 
 type n0 struct {
@@ -35,8 +34,6 @@ func (n *n0) LoopInput(l *loop.Loop, out loop.LooperOut) {
 func (n *n0) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {
 	n.call(l, in.(*N0In), &out.(*n0Out).In)
 }
-func (n *n0) LoopInit(l *loop.Loop) { time.Sleep(1 * time.Second); fmt.Printf("done\n") }
-
 func (n *n0) call(l *loop.Loop, in *N0In, outIn *N0In) {
 	done := n.calls >= 10
 	if !done {
