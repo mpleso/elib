@@ -41,3 +41,5 @@ func (p * {{.VecType}}) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p {{.VecType}}) Len() uint { return uint(len(p)) }

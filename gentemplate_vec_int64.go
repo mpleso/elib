@@ -30,3 +30,5 @@ func (p *Int64Vec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p Int64Vec) Len() uint { return uint(len(p)) }

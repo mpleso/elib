@@ -30,3 +30,5 @@ func (p *fibNodeVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p fibNodeVec) Len() uint { return uint(len(p)) }

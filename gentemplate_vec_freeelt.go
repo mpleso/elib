@@ -30,3 +30,5 @@ func (p *freeEltVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p freeEltVec) Len() uint { return uint(len(p)) }

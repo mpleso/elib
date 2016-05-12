@@ -30,3 +30,5 @@ func (p *StringVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p StringVec) Len() uint { return uint(len(p)) }

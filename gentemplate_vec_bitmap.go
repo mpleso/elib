@@ -30,3 +30,5 @@ func (p *BitmapVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p BitmapVec) Len() uint { return uint(len(p)) }

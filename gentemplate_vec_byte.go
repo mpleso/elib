@@ -30,3 +30,5 @@ func (p *ByteVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p ByteVec) Len() uint { return uint(len(p)) }
