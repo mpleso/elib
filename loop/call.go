@@ -13,6 +13,18 @@ type nodeStats struct {
 	clocks         cpu.Time
 }
 
+type pollerStats struct {
+	nonIdleClocks cpu.Time
+	calls         uint64
+	vectors       uint64
+}
+
+func (s *pollerStats) add(a *activePoller) {
+	s.nonIdleClocks += a.nonIdleClocks - a.statsLastClear.nonIdleClocks
+	s.vectors += a.vectors - a.statsLastClear.vectors
+	s.calls += a.calls - a.statsLastClear.calls
+}
+
 func (s *nodeStats) add(a *activeNode) {
 	s.calls += a.calls - a.statsLastClear.calls
 	s.vectors += a.vectors - a.statsLastClear.vectors
@@ -48,6 +60,8 @@ type activePoller struct {
 	currentNode       *activeNode
 	activeNodes       []activeNode
 	nodeIndexByInType map[reflect.Type]uint32
+	pollerStats
+	statsLastClear pollerStats
 }
 
 var looperInType = reflect.TypeOf((*LooperIn)(nil)).Elem()
@@ -243,7 +257,7 @@ func (i *In) SetLen(l *Loop, nVec uint) {
 	}
 }
 
-func (f *Out) pendingNVec(xi uint) (nVec uint) {
+func (f *Out) nextVectors(xi uint) (nVec uint) {
 	nVec = uint(f.Len[xi])
 	if nVec == 0 {
 		nVec = V
@@ -251,24 +265,31 @@ func (f *Out) pendingNVec(xi uint) (nVec uint) {
 	return
 }
 
-func (f *Out) call(l *Loop, a *activePoller) {
-	nVec := uint(0)
+func (f *Out) totalVectors() (nVec uint) {
 	for i := range f.pending {
 		p := &f.pending[i]
-		nVec += f.pendingNVec(uint(p.nextIndex))
+		nVec += f.nextVectors(uint(p.nextIndex))
 	}
+	return
+}
+
+func (n *activeNode) updateStats(nVec uint, tStart cpu.Time) (tNow cpu.Time) {
+	tNow = cpu.TimeNow()
+	n.calls++
+	n.vectors += uint64(nVec)
+	n.clocks += tNow - tStart
+	return
+}
+
+func (f *Out) call(l *Loop, a *activePoller) (nVec uint) {
 	prevNode := a.currentNode
-	t := cpu.TimeNow()
-	t0 := a.timeNow
-	prevNode.calls++
-	prevNode.vectors += uint64(nVec)
-	prevNode.clocks += t - t0
-	t0 = t
-	a.timeNow = t
+	nVec = f.totalVectors()
+	a.timeNow = prevNode.updateStats(nVec, a.timeNow)
 	if nVec == 0 {
 		return
 	}
 	pendingIndex := 0
+	t0 := a.timeNow
 	for {
 		// Advance pending
 		if pendingIndex >= len(f.pending) {
@@ -282,11 +303,11 @@ func (f *Out) call(l *Loop, a *activePoller) {
 		next := &a.activeNodes[ni]
 
 		// Determine vector length; 0 on pending vector means wrap to V (256).
-		nVec := f.pendingNVec(uint(xi))
+		nextN := f.nextVectors(uint(xi))
 
 		in := p.in
 		in.activeIndex = uint16(a.index)
-		in.len = uint16(nVec)
+		in.len = uint16(nextN)
 
 		// Reset this frame.
 		f.Len[xi] = 0
@@ -301,14 +322,11 @@ func (f *Out) call(l *Loop, a *activePoller) {
 			next.outLooper.LoopOutput(l, nextIn)
 		}
 
-		t := cpu.TimeNow()
-		next.calls++
-		next.vectors += uint64(nVec)
-		next.clocks += t - t0
-		t0 = t
+		t0 = next.updateStats(nextN, t0)
 	}
 	f.pending = f.pending[:0]
 	a.timeNow = t0
+	return
 }
 
 func (o *Out) GetOut() *Out { return o }

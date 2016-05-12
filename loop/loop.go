@@ -97,6 +97,8 @@ type Loop struct {
 	wg                     sync.WaitGroup
 }
 
+func (l *Loop) Seconds(t cpu.Time) float64 { return float64(t) * l.secsPerCycle }
+
 type loopEvent struct {
 	actor event.Actor
 	dst   *Node
@@ -240,9 +242,14 @@ func (l *Loop) dataPoll(p inLooper) {
 		}
 		n := &ap.activeNodes[c.index]
 		ap.currentNode = n
-		ap.timeNow = cpu.TimeNow()
+		t0 := cpu.TimeNow()
+		ap.timeNow = t0
 		p.LoopInput(l, n.looperOut)
-		n.out.call(l, ap)
+		nVec := n.out.call(l, ap)
+		t := cpu.TimeNow()
+		ap.nonIdleClocks += t - t0
+		ap.vectors += uint64(nVec)
+		ap.calls += 1
 		c.toLoop <- struct{}{}
 	}
 }
@@ -292,7 +299,7 @@ func (l *Loop) timerInit() {
 	t := cpu.Time(0)
 	t.Cycles(1 * cpu.Second)
 	l.cyclesPerSec = float64(t)
-	l.secsPerCycle = t.Seconds()
+	l.secsPerCycle = 1 / l.cyclesPerSec
 	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
 }
 

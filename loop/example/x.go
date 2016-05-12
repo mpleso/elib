@@ -100,7 +100,11 @@ func init() {
 					return
 				}
 			}
-			node1.ActivateCount(n)
+			if n == 0 {
+				node1.Activate(true)
+			} else {
+				node1.ActivateCount(n)
+			}
 		},
 	})
 }

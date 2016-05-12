@@ -81,12 +81,28 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 		}
 	}
 
+	// Summary
+	{
+		var s pollerStats
+		for _, a := range l.activePollers {
+			s.add(a)
+		}
+		if s.calls > 0 {
+			vecsPerSec := float64(s.vectors) / l.Seconds(s.nonIdleClocks)
+			clocksPerVec := float64(s.nonIdleClocks) / float64(s.vectors)
+			vecsPerCall := float64(s.vectors) / float64(s.calls)
+			fmt.Fprintf(w, "Vectors: %d, Vectors/sec: %.2e, Clocks/vector: %.2f, Vectors/call %.2f\n",
+				s.vectors, vecsPerSec, clocksPerVec, vecsPerCall)
+		}
+	}
+
 	sort.Sort(ns)
 	fmt.Fprintf(w, "%s", elib.Tabulate(ns))
 }
 
 func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 	for _, a := range l.activePollers {
+		a.statsLastClear = a.pollerStats
 		for j := range a.activeNodes {
 			a.activeNodes[j].statsLastClear = a.activeNodes[j].nodeStats
 		}
