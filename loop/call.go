@@ -86,12 +86,14 @@ func (a *activeNode) analyzeOut(l *Loop, ap *activePoller) (err error) {
 	if ap.nodeIndexByInType == nil {
 		ap.nodeIndexByInType = make(map[reflect.Type]uint32)
 	}
-	inType := reflect.TypeOf(a.loopInMaker.MakeLoopIn())
-	if _, ok := ap.nodeIndexByInType[inType]; ok {
-		err = fmt.Errorf("duplicate nodes handle input type %T", inType)
-		return
+	if a.loopInMaker != nil {
+		inType := reflect.TypeOf(a.loopInMaker.MakeLoopIn())
+		if _, ok := ap.nodeIndexByInType[inType]; ok {
+			err = fmt.Errorf("duplicate nodes handle input type %T", inType)
+			return
+		}
+		ap.nodeIndexByInType[inType] = a.index
 	}
-	ap.nodeIndexByInType[inType] = a.index
 
 	v := reflect.ValueOf(a.looperOut).Elem()
 	ins := []LooperIn{}
@@ -170,7 +172,9 @@ func (ap *activePoller) init(l *Loop, api uint) {
 			a.looperOut = d.MakeLoopOut()
 			a.out = a.looperOut.GetOut()
 		}
-		a.loopInMaker = n.(loopInMaker)
+		if d, ok := n.(loopInMaker); ok {
+			a.loopInMaker = d
+		}
 		if d, ok := n.(inOutLooper); ok {
 			a.inOutLooper = d
 		}
@@ -186,6 +190,9 @@ func (ap *activePoller) init(l *Loop, api uint) {
 
 	for ni := range ap.activeNodes {
 		a := &ap.activeNodes[ni]
+		if a.out == nil {
+			continue
+		}
 		a.out.alloc(uint(len(a.outIns)))
 		for xi := range a.outIns {
 			oi := a.outIns[xi]
@@ -236,13 +243,32 @@ func (i *In) SetLen(l *Loop, nVec uint) {
 	}
 }
 
+func (f *Out) pendingNVec(xi uint) (nVec uint) {
+	nVec = uint(f.Len[xi])
+	if nVec == 0 {
+		nVec = V
+	}
+	return
+}
+
 func (f *Out) call(l *Loop, a *activePoller) {
-	if len(f.pending) == 0 {
+	nVec := uint(0)
+	for i := range f.pending {
+		p := &f.pending[i]
+		nVec += f.pendingNVec(uint(p.nextIndex))
+	}
+	prevNode := a.currentNode
+	t := cpu.TimeNow()
+	t0 := a.timeNow
+	prevNode.calls++
+	prevNode.vectors += uint64(nVec)
+	prevNode.clocks += t - t0
+	t0 = t
+	a.timeNow = t
+	if nVec == 0 {
 		return
 	}
-	t0 := a.timeNow
 	pendingIndex := 0
-	prevNode := a.currentNode
 	for {
 		// Advance pending
 		if pendingIndex >= len(f.pending) {
@@ -256,10 +282,7 @@ func (f *Out) call(l *Loop, a *activePoller) {
 		next := &a.activeNodes[ni]
 
 		// Determine vector length; 0 on pending vector means wrap to V (256).
-		nVec := uint16(f.Len[xi])
-		if nVec == 0 {
-			nVec = uint16(V)
-		}
+		nVec := f.pendingNVec(uint(xi))
 
 		in := p.in
 		in.activeIndex = uint16(a.index)
@@ -296,8 +319,9 @@ type In struct {
 	nextIndex   uint32
 }
 
-func (i *In) GetIn() *In { return i }
-func (i *In) Len() uint  { return uint(i.len) }
+func (i *In) GetIn() *In     { return i }
+func (i *In) Len() uint      { return uint(i.len) }
+func (i *In) ThreadId() uint { return uint(i.activeIndex) }
 
 type LooperOut interface {
 	GetOut() *Out

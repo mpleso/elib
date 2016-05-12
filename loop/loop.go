@@ -18,7 +18,7 @@ type Node struct {
 	fromLoop          chan struct{}
 	eventVec          event.ActorVec
 	active            bool
-	oneShot           bool
+	activeCount       uint
 	dataCaller        inOutLooper
 	activePollerIndex uint
 	initOnce          sync.Once
@@ -42,16 +42,17 @@ func (l *Loop) countActive(enable bool) {
 	}
 }
 
-func (n *Node) activate(enable, oneShot bool) {
+func (n *Node) activate(enable bool, count uint) {
 	if n.active != enable {
 		n.active = enable
-		n.oneShot = oneShot
+		n.activeCount = count
 		n.loop.countActive(enable)
 	}
 }
 
-func (n *Node) Activate(enable bool)     { n.activate(enable, false) }
-func (n *Node) ActivateOnce(enable bool) { n.activate(enable, true) }
+func (n *Node) Activate(enable bool)     { n.activate(enable, 0) }
+func (n *Node) ActivateCount(count uint) { n.activate(true, count) }
+func (n *Node) ActivateOnce(enable bool) { n.activate(enable, 1) }
 
 type Noder interface {
 	GetNode() *Node
@@ -267,10 +268,12 @@ func (l *Loop) doPollers() {
 			l.activePollers[nActive].pollerNode = c
 			c.activePollerIndex = nActive
 			nActive++
-			if c.oneShot {
-				c.active = false
-				c.oneShot = false
-				l.countActive(false)
+			if c.activeCount > 0 {
+				c.activeCount--
+				if c.activeCount == 0 {
+					c.active = false
+					l.countActive(false)
+				}
 			}
 			c.fromLoop <- struct{}{}
 		}

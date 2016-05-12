@@ -57,31 +57,37 @@ func (n *n0) call(l *loop.Loop, in *N0In, outIn *N0In) {
 	}
 }
 
-type n1 n0
+type n1 struct {
+	loop.Node
+	calls uint
+	myErr [2]loop.ErrorRef
+}
 
 var node1 = &n1{}
 
-type N1In N0In
-
 type n1Out struct {
 	loop.Out
-	Ins []N1In
+	Outs []loop.RefIn
 }
 
 func init() { loop.Register(node1, "node1") }
 
-func (n *n1) MakeLoopIn() loop.LooperIn   { return &N1In{} }
 func (n *n1) MakeLoopOut() loop.LooperOut { return &n1Out{} }
 
 func (n *n1) LoopInit(l *loop.Loop) {
-	l.AddNext(node1, node1)
+	l.AddNext(node1, loop.ErrorNode)
+	node1.myErr[0] = node1.NewError("error one")
+	node1.myErr[1] = node1.NewError("error two")
 }
 
 func (n *n1) LoopInput(l *loop.Loop, out loop.LooperOut) {
-	(*n0)(n).call(l, (*N0In)(nil), (*N0In)(&out.(*n1Out).Ins[0]))
-}
-func (n *n1) LoopInputOutput(l *loop.Loop, in loop.LooperIn, out loop.LooperOut) {
-	(*n0)(n).call(l, (*N0In)(in.(*N1In)), (*N0In)(&out.(*n1Out).Ins[0]))
+	o := out.(*n1Out)
+	toErr := &o.Outs[0]
+	toErr.AllocRefs()
+	for i := range toErr.Refs {
+		toErr.Refs[i].Err = node1.myErr[i%2]
+	}
+	toErr.SetLen(l, uint(len(toErr.Refs)))
 }
 
 func init() {
@@ -90,7 +96,14 @@ func init() {
 		ShortHelp: "a short help",
 		Action: func(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 			node0.ActivateOnce(true)
-			node1.ActivateOnce(true)
+			n := uint(1)
+			if s.Peek() != cli.EOF {
+				if err := s.Parse("%d", &n); err != nil {
+					fmt.Fprintln(w, "parse error")
+					return
+				}
+			}
+			node1.ActivateCount(n)
 		},
 	})
 }
