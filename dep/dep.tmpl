@@ -15,8 +15,14 @@ type {{.DepsType}} struct {
 	{{.Data}} []{{.Type}}
 }
 
-func (t *{{.DepsType}}) Len() int          { return t.deps.Len() }
-func (t *{{.DepsType}}) Get(i int) t1Hook { return t.{{.Data}}[t.deps.Index(i)] }
+func (t *{{.DepsType}}) Len() int {
+	return t.deps.Len()
+}
+
+func (t *{{.DepsType}}) Get(i int) {{.Type}} {
+	return t.{{.Data}}[t.deps.Index(i)]
+}
+
 func (t *{{.DepsType}}) Add(x {{.Type}}, ds ...*dep.Dep) {
 	for i := range ds {
 		t.deps.Add(ds[i])
