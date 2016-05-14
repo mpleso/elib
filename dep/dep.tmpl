@@ -1,0 +1,25 @@
+{{/* -*- mode: Go -*- */}}
+
+{{if ne .TAGS ""}}
+//+build {{.TAGS}}
+{{end}}
+
+package {{.Package}}
+
+import (
+	"github.com/platinasystems/elib/dep"
+)
+
+type {{.DepsType}} struct {
+	deps dep.Deps
+	{{.Data}} []{{.Type}}
+}
+
+func (t *{{.DepsType}}) Len() int          { return t.deps.Len() }
+func (t *{{.DepsType}}) Get(i int) t1Hook { return t.{{.Data}}[t.deps.Index(i)] }
+func (t *{{.DepsType}}) Add(x {{.Type}}, ds ...*dep.Dep) {
+	for i := range ds {
+		t.deps.Add(ds[i])
+	}
+	t.{{.Data}} = append(t.{{.Data}}, x)
+}
