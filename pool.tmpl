@@ -62,6 +62,10 @@ func (p * {{.PoolType}}) Validate(i uint) {
 	}
 }
 
-func (p * {{.PoolType}}) Elts() int {
-	return len(p.{{.Data}}) - p.FreeLen()
+func (p * {{.PoolType}}) Elts() uint {
+	return uint(len(p.{{.Data}})) - p.FreeLen()
+}
+
+func (p * {{.PoolType}}) Len() uint {
+	return uint(len(p.{{.Data}}))
 }
