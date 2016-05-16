@@ -3,7 +3,9 @@ package elib
 // Formats generic slices/arrays of structs as tables.
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -46,7 +48,7 @@ const (
 	alignRight
 )
 
-func formatCenteredString(s string, align align, width int) (v string) {
+func writeCenteredString(w *bufio.Writer, s string, align align, width int) {
 	l := len(s)
 	nLeft, nRight := 0, 0
 	if d := width - l; d > 0 {
@@ -63,29 +65,29 @@ func formatCenteredString(s string, align align, width int) (v string) {
 			nLeft = d
 		}
 	}
-	v = ""
 	for i := 0; i < nLeft; i++ {
-		v += " "
+		w.WriteByte(' ')
 	}
-	v += s
+	w.Write([]byte(s))
 	for i := 0; i < nRight; i++ {
-		v += " "
+		w.WriteByte(' ')
 	}
-	return
 }
 
-func (t *table) String() (s string) {
-	s = ""
+func (t *table) Write(iw io.Writer) {
+	w := bufio.NewWriter(iw)
 	for c := range t.cols {
-		s += formatCenteredString(t.cols[c].displayName(), t.cols[c].align, t.cols[c].getWidth())
+		writeCenteredString(w, t.cols[c].displayName(), t.cols[c].align, t.cols[c].getWidth())
 	}
-	s += "\n"
+	w.WriteByte('\n')
+
 	for r := range t.rows {
 		for c := range t.rows[r].cols {
-			s += formatCenteredString(t.rows[r].cols[c], t.cols[c].align, t.cols[c].getWidth())
+			writeCenteredString(w, t.rows[r].cols[c], t.cols[c].align, t.cols[c].getWidth())
 		}
-		s += "\n"
+		w.WriteByte('\n')
 	}
+	w.Flush()
 	return
 }
 
@@ -129,6 +131,20 @@ func Tabulate(x interface{}) (tab *table) {
 		if w := f.Tag.Get("format"); len(w) > 0 {
 			tab.cols[c].format = w
 		}
+		if w := f.Tag.Get("align"); len(w) > 0 {
+			a := align(alignCenter)
+			switch w {
+			case "left":
+				a = alignLeft
+			case "right":
+				a = alignRight
+			case "center":
+				a = alignCenter
+			default:
+				panic(fmt.Errorf("bad align for field %s: %s", f.Name, w))
+			}
+			tab.cols[c].align = a
+		}
 		tab.cols[c].name = f.Name
 		tab.cols[c].maxLen = len(tab.cols[c].name)
 
@@ -158,3 +174,5 @@ func Tabulate(x interface{}) (tab *table) {
 
 	return tab
 }
+
+func TabulateWrite(w io.Writer, x interface{}) { Tabulate(x).Write(w) }
