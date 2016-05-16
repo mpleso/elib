@@ -51,6 +51,10 @@ func (p *BitmapPool) Validate(i uint) {
 	}
 }
 
-func (p *BitmapPool) Elts() int {
-	return len(p.bitmaps) - p.FreeLen()
+func (p *BitmapPool) Elts() uint {
+	return uint(len(p.bitmaps)) - p.FreeLen()
+}
+
+func (p *BitmapPool) Len() uint {
+	return uint(len(p.bitmaps))
 }

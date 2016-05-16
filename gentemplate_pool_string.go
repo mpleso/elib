@@ -51,6 +51,10 @@ func (p *StringPool) Validate(i uint) {
 	}
 }
 
-func (p *StringPool) Elts() int {
-	return len(p.Strings) - p.FreeLen()
+func (p *StringPool) Elts() uint {
+	return uint(len(p.Strings)) - p.FreeLen()
+}
+
+func (p *StringPool) Len() uint {
+	return uint(len(p.Strings))
 }

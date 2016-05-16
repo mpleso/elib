@@ -55,6 +55,6 @@ func (p *filePool) Validate(i uint) {
 	}
 }
 
-func (p *filePool) Elts() int {
-	return len(p.files) - p.FreeLen()
+func (p *filePool) Elts() uint {
+	return uint(len(p.files)) - p.FreeLen()
 }

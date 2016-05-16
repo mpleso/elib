@@ -55,6 +55,10 @@ func (p *timedEventPool) Validate(i uint) {
 	}
 }
 
-func (p *timedEventPool) Elts() int {
-	return len(p.events) - p.FreeLen()
+func (p *timedEventPool) Elts() uint {
+	return uint(len(p.events)) - p.FreeLen()
+}
+
+func (p *timedEventPool) Len() uint {
+	return uint(len(p.events))
 }

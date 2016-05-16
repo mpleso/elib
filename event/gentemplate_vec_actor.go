@@ -34,3 +34,5 @@ func (p *ActorVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p ActorVec) Len() uint { return uint(len(p)) }

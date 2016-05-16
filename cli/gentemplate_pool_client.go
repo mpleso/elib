@@ -55,6 +55,10 @@ func (p *clientPool) Validate(i uint) {
 	}
 }
 
-func (p *clientPool) Elts() int {
-	return len(p.clients) - p.FreeLen()
+func (p *clientPool) Elts() uint {
+	return uint(len(p.clients)) - p.FreeLen()
+}
+
+func (p *clientPool) Len() uint {
+	return uint(len(p.clients))
 }
