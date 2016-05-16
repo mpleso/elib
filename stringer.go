@@ -12,7 +12,8 @@ func StringerWithFormat(n []string, i int, unknownFormat string) string {
 	}
 }
 
-func Stringer(n []string, i int) string { return StringerWithFormat(n, i, "%d") }
+func Stringer(n []string, i int) string    { return StringerWithFormat(n, i, "%d") }
+func StringerHex(n []string, i int) string { return StringerWithFormat(n, i, "0x%x") }
 
 func FlagStringerWithFormat(n []string, x Word, unknownFormat string) (s string) {
 	s = ""
