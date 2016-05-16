@@ -107,7 +107,7 @@ func (n *myNode) LoopInput(l *loop.Loop, lo loop.LooperOut) {
 		r := &rs[i]
 		if true {
 			eh := ethernet.GetPacketHeader(r)
-			l.Logf("%s %d: %s\n", n.Name(), i, eh)
+			l.Logf("%s %d: %s\n", n.NodeName(), i, eh)
 			r.Advance(ethernet.HeaderBytes)
 			if false {
 				ih := ip4.GetHeader(r)

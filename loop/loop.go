@@ -26,10 +26,11 @@ type Node struct {
 	outIns            []LooperIn
 }
 
-func (n *Node) GetNode() *Node { return n }
-func (n *Node) Index() uint    { return n.index }
-func (n *Node) Name() string   { return n.name }
-func nodeName(n Noder) string  { return n.GetNode().name }
+func (n *Node) GetNode() *Node   { return n }
+func (n *Node) Index() uint      { return n.index }
+func (n *Node) NodeName() string { return n.name }
+func (n *Node) ThreadId() uint   { return uint(n.activePollerIndex) }
+func nodeName(n Noder) string    { return n.GetNode().name }
 
 func (l *Loop) countActive(enable bool) {
 	if enable {

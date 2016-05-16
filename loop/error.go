@@ -137,7 +137,7 @@ func (l *Loop) showErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 		sort.Sort(errNodes(ns))
 	}
 	if len(ns) > 0 {
-		fmt.Fprintf(w, "%s", elib.Tabulate(ns))
+		elib.TabulateWrite(w, ns)
 	} else {
 		fmt.Fprintln(w, "No errors since last clear.")
 	}

@@ -46,6 +46,7 @@ func (r *Ref) DataSlice() (b []byte) {
 	return
 }
 
+func (r *Ref) DataLen() uint { return uint(r.dataLen) }
 func (r *Ref) SetLen(l uint) { r.dataLen = uint16(l) }
 func (r *Ref) Advance(i int) (oldDataOffset int) {
 	oldDataOffset = int(r.dataOffset)
