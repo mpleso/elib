@@ -66,8 +66,8 @@ const (
 	// Cache aligned/sized space for buffer header.
 	BufferHeaderBytes = cpu.CacheLineBytes
 	// Rewrite area.
-	rewriteBytes  = 128
-	overheadBytes = BufferHeaderBytes + rewriteBytes
+	RewriteBytes  = 128
+	overheadBytes = BufferHeaderBytes + RewriteBytes
 )
 
 // Buffer header.
@@ -124,7 +124,7 @@ func (p *BufferPool) bufferSize() uint {
 	return nLines * cpu.CacheLineBytes
 }
 
-var defaultRef = Ref{dataOffset: rewriteBytes}
+var defaultRef = Ref{dataOffset: RewriteBytes}
 var defaultBuf = Buffer{}
 
 type BufferTemplate struct {
@@ -142,7 +142,7 @@ type BufferTemplate struct {
 
 var DefaultBufferTemplate = &BufferTemplate{
 	Size: 512,
-	Ref:  Ref{dataOffset: rewriteBytes},
+	Ref:  Ref{dataOffset: RewriteBytes},
 }
 var DefaultBufferPool = NewBufferPool(DefaultBufferTemplate)
 
