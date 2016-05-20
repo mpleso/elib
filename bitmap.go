@@ -134,10 +134,6 @@ func (p *BitmapPool) Set(b Bitmap, x uint) (r Bitmap) {
 	return
 }
 
-func (b Bitmap) Set(x uint) Bitmap {
-	return Bitmaps.Set(b, x)
-}
-
 func (p *BitmapPool) Get(b Bitmap, x uint) (v bool) {
 	if !b.isPoolIndex() {
 		m := Bitmap(1) << x
@@ -149,10 +145,6 @@ func (p *BitmapPool) Get(b Bitmap, x uint) (v bool) {
 		v = bm[i]&m != 0
 	}
 	return
-}
-
-func (b Bitmap) Get(x uint) bool {
-	return Bitmaps.Get(b, x)
 }
 
 func (p *BitmapPool) Unset2(b Bitmap, x uint) (r Bitmap, old bool) {
@@ -176,6 +168,43 @@ func (p *BitmapPool) Unset(b Bitmap, x uint) (r Bitmap) {
 	r, _ = p.Unset2(b, x)
 	return
 }
+
+func (p *BitmapPool) Invert2(b Bitmap, x uint) (r Bitmap, v bool) {
+	var bi Bitmap
+
+	r = b
+	if b.isInline() {
+		if x < bitmapBits-1 {
+			m := Bitmap(1) << x
+			v = b&m != 0
+			r ^= m
+			return
+		}
+
+		r = p.toMem(b)
+	}
+
+	i, m := bitmapIndex(x)
+	bi = ^r
+	s := p.bitmaps[bi]
+	s.Validate(i)
+	p.bitmaps[bi] = s
+	si := s[i]
+	v = si&m != 0
+	s[i] = si ^ m
+	return
+}
+
+func (p *BitmapPool) Invert(b Bitmap, x uint) (r Bitmap) {
+	r, _ = p.Invert2(b, x)
+	return
+}
+
+func (b Bitmap) Get(x uint) bool               { return Bitmaps.Get(b, x) }
+func (b Bitmap) Set(x uint) Bitmap             { return Bitmaps.Set(b, x) }
+func (b Bitmap) Invert(x uint) Bitmap          { return Bitmaps.Invert(b, x) }
+func (b Bitmap) Set2(x uint) (Bitmap, bool)    { return Bitmaps.Set2(b, x) }
+func (b Bitmap) Invert2(x uint) (Bitmap, bool) { return Bitmaps.Invert2(b, x) }
 
 func (p *BitmapPool) Orx(b Bitmap, x uint) (r Bitmap) {
 	r = b
