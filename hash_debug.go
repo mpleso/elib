@@ -50,10 +50,6 @@ func (h *uiHash) HashResize() {
 	h.pairs = dst
 }
 
-func (h *Hash) String() string {
-	return fmt.Sprintf("%d elts/%d cap", h.Elts(), h.Cap())
-}
-
 type testHash struct {
 	uiHash uiHash
 
@@ -197,9 +193,6 @@ func runHashTest(t *testHash) (err error) {
 		}
 		iter++
 	}
-	if t.verbose != 0 {
-		fmt.Printf("%d iterations: %s\n", iter, h)
-		fmt.Printf("No errors: %d iterations\n", t.iterations)
-	}
+	fmt.Printf("%d iterations: %s\n", iter, h)
 	return
 }
