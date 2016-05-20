@@ -150,32 +150,100 @@ func (s *HashState) HashPointer(p unsafe.Pointer, size uintptr) {
 }
 
 type Hash struct {
-	seed       HashState
-	cap        Cap
-	log2Cap    [2]uint8
-	log2Bucket uint8
-	limit0     uint32
+	seed              HashState
+	cap               Cap
+	log2Cap           [2]uint8
+	log2EltsPerBucket uint8
+	eltsPerBucket     uint32
+	limit0            uint32
+	shortHash         []shortHash
 }
 
+type shortHash uint8
+
 type Hasher interface {
-	// k0.Equal(k1) returns k0 == k1.
-	KeyEqual(k1 Hasher) bool
+	// k0.Equal(keys[i]) returns k0 == k1.
+	KeyEqual(i uint) bool
 	// Compute hash for key.
 	KeyHash(s *HashState)
 }
 
 func (h *Hash) capMask(i uint) uint { return uint(1)<<h.log2Cap[i] - 1 }
 
+func (h *HashState) limit() uint32 { return uint32(h.state[0] >> 32) }
+
+const shortHashValid = 1
+
+func (h *HashState) shortHash() shortHash { return shortHash(h.state[0]) | shortHashValid }
+func (s shortHash) isValid() bool         { return s&shortHashValid != 0 }
+func (h *HashState) offset() hash64       { return h.state[1] }
+
 func (h *Hash) baseIndex(s *HashState) uint {
 	is_table_1 := uint(0)
 	if uint32(s.state[0]) > h.limit0 {
 		is_table_1 = 1
 	}
-	return uint(s.state[1])&h.capMask(is_table_1) + (is_table_1 << h.log2Cap[0])
+	return uint(s.offset())&h.capMask(is_table_1) + (is_table_1 << h.log2Cap[0])
 }
 
-func (h *Hash) baseIndexForKey(k Hasher) uint {
+func (h *Hash) baseIndexForKey(k Hasher) (uint, shortHash) {
 	var s HashState = h.seed
 	k.KeyHash(&s)
-	return h.baseIndex(&s)
+	return h.baseIndex(&s), s.shortHash()
+}
+
+func (h *Hash) search(k Hasher) (baseIndex, matchDiff, freeDiff uint, kh shortHash, ok bool) {
+	baseIndex, kh = h.baseIndexForKey(k)
+	n := uint(1) << h.log2EltsPerBucket
+	freeDiff = n
+	for diff := uint(0); diff < n; diff++ {
+		i := baseIndex ^ diff
+		sh := h.shortHash[i]
+		if sh == kh && k.KeyEqual(i) {
+			matchDiff = diff
+			ok = true
+			break
+		}
+		if !sh.isValid() && freeDiff >= n {
+			freeDiff = diff
+		}
+	}
+	return
+}
+
+func (h *Hash) ForeachIndex(f func(i uint)) {
+	for i := range h.shortHash {
+		if h.shortHash[i].isValid() {
+			f(uint(i))
+		}
+	}
+}
+
+func (h *Hash) Get(k Hasher) (i uint, ok bool) {
+	var bi, mi uint
+	if bi, mi, _, _, ok = h.search(k); ok {
+		i = bi ^ mi
+	}
+	return i, ok
+}
+
+func (h *Hash) diffValid(d uint) bool { return d>>h.log2EltsPerBucket == 0 }
+
+func (h *Hash) Set(k Hasher) (i uint, exists bool) {
+	var (
+		bi, mi, fi uint
+		kh         shortHash
+	)
+	bi, mi, fi, kh, exists = h.search(k)
+	if exists {
+		// Key already exists.
+		i = bi ^ mi
+	} else if h.diffValid(fi) {
+		// Use up free slot in bucket.
+		i = fi ^ mi
+		h.shortHash[i] = kh
+	} else {
+		// Bucket full.
+	}
+	return
 }
