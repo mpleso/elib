@@ -10,6 +10,8 @@ func (c Cap) IsValid() bool {
 	return 0 == c&(c-1)
 }
 
+const CapNil = ^Cap(0)
+
 func (n Cap) Round(log2Unit Cap) Cap {
 	// Power of 2?
 	if n&(n-1) != 0 {
@@ -28,7 +30,7 @@ func (c Cap) Pow2() (i, j Cap) {
 	i = c ^ j
 	if i == 0 {
 		i = j
-		j = ^Cap(0)
+		j = CapNil
 	}
 	return
 }
@@ -36,7 +38,7 @@ func (c Cap) Pow2() (i, j Cap) {
 func (c Cap) Log2() (i, j Cap) {
 	i, j = c.Pow2()
 	i = Cap(Word(i).MinLog2())
-	if j != ^Cap(0) {
+	if j != CapNil {
 		j = Cap(Word(j).MinLog2())
 	}
 	return
