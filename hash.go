@@ -1,6 +1,7 @@
 package elib
 
 import (
+	"math/rand"
 	"reflect"
 	"unsafe"
 )
@@ -9,9 +10,7 @@ type hash64 uint64
 
 func (h hash64) rotate(n hash64) hash64 { return (h << n) | (h >> (64 - n)) }
 
-type HashState struct {
-	state [2]hash64
-}
+type HashState [2]hash64
 
 func (s *HashState) mixStep(a, b, c, n hash64) (hash64, hash64, hash64) {
 	a = a.rotate(n) + b
@@ -77,7 +76,7 @@ func (s *HashState) mixSlice(h0, h1, h2, h3 hash64, b []byte) (hash64, hash64, h
 	n := len(b)
 	i := 0
 
-	n8 := n / 8
+	n8 := n &^ 7
 	for i+4*8 <= n8 {
 		h2 += s.get64(b, i+0*8)
 		h3 += s.get64(b, i+1*8)
@@ -99,19 +98,19 @@ func (s *HashState) mixSlice(h0, h1, h2, h3 hash64, b []byte) (hash64, hash64, h
 		i += 1 * 8
 	}
 
-	n4 := (n - i) / 4
+	n4 := (n - i) &^ 3
 	if i+1*4 <= n4 {
 		h3 += s.get32(b, i)
 		i += 1 * 4
 	}
 
-	n2 := (n - i) / 2
+	n2 := (n - i) &^ 1
 	if i+1*2 <= n2 {
 		h3 += s.get16(b, i) << 32
 		i += 1 * 2
 	}
 
-	if i > 0 {
+	if i < n {
 		h3 += hash64(b[i]) << (32 + 16)
 	}
 
@@ -126,7 +125,7 @@ func (s *HashState) hashSlice(b []byte) {
 	//  * does not need any other special mathematical properties.
 	const seedConst hash64 = 0xdeadbeefdeadbeef
 
-	h0, h1, h2, h3 := s.state[0], s.state[1], seedConst, seedConst
+	h0, h1, h2, h3 := s[0], s[1], seedConst, seedConst
 
 	// Mix in data length.
 	h0 += hash64(len(b))
@@ -135,10 +134,10 @@ func (s *HashState) hashSlice(b []byte) {
 
 	h0, h1, h2, h3 = s.finalize(h0, h1, h2, h3)
 
-	s.state[0], s.state[1] = h0, h1
+	s[0], s[1] = h0, h1
 }
 
-func (s *HashState) seed(h0, h1 uint64) { s.state[0], s.state[1] = hash64(h0), hash64(h1) }
+func (s *HashState) seed(h0, h1 uint64) { s[0], s[1] = hash64(h0), hash64(h1) }
 
 func (s *HashState) HashPointer(p unsafe.Pointer, size uintptr) {
 	var h reflect.SliceHeader
@@ -149,7 +148,16 @@ func (s *HashState) HashPointer(p unsafe.Pointer, size uintptr) {
 	s.hashSlice(b)
 }
 
+type stats struct {
+	searches uint64
+	compares uint64
+}
+
+func (s *stats) compare(x uint) { s.compares += uint64(x) }
+func (s *stats) search(x uint)  { s.searches += uint64(x) }
+
 type Hash struct {
+	Hasher            Hasher
 	seed              HashState
 	cap               Cap
 	log2Cap           [2]uint8
@@ -157,58 +165,113 @@ type Hash struct {
 	eltsPerBucket     uint32
 	limit0            uint32
 	shortHash         []shortHash
+	nElts             uint
+	stats
+	ResizeRemaps []HashRemap
 }
 
 type shortHash uint8
 
+type HashRemap struct{ src, dst uint }
+
 type Hasher interface {
+	HashIndex(s *HashState, i uint)
+	HashResize()
+}
+
+type HasherKey interface {
 	// k0.Equal(keys[i]) returns k0 == k1.
-	KeyEqual(i uint) bool
+	HashKeyEqual(h Hasher, i uint) bool
 	// Compute hash for key.
-	KeyHash(s *HashState)
+	HashKey(s *HashState)
 }
 
 func (h *Hash) capMask(i uint) uint { return uint(1)<<h.log2Cap[i] - 1 }
 
-func (h *HashState) limit() uint32 { return uint32(h.state[0] >> 32) }
+func (h *HashState) limit() uint32 { return uint32(h[0] >> 32) }
 
-const shortHashValid = 1
+const shortHashNil = 0
 
-func (h *HashState) shortHash() shortHash { return shortHash(h.state[0]) | shortHashValid }
-func (s shortHash) isValid() bool         { return s&shortHashValid != 0 }
-func (h *HashState) offset() hash64       { return h.state[1] }
+func (h *HashState) shortHash() (sh shortHash) {
+	x := h[0]
+	for {
+		sh = shortHash(x)
+		if sh != shortHashNil {
+			break
+		}
+		x = x >> 8
+		if x == 0 {
+			// fallback non-nil value when
+			sh = 1 + shortHashNil
+			break
+		}
+	}
+	return
+}
+func (s shortHash) isValid() bool   { return s != shortHashNil }
+func (h *HashState) offset() hash64 { return h[1] }
 
 func (h *Hash) baseIndex(s *HashState) uint {
 	is_table_1 := uint(0)
-	if uint32(s.state[0]) > h.limit0 {
+	if uint32(s[0]) > h.limit0 {
 		is_table_1 = 1
 	}
 	return uint(s.offset())&h.capMask(is_table_1) + (is_table_1 << h.log2Cap[0])
 }
 
-func (h *Hash) baseIndexForKey(k Hasher) (uint, shortHash) {
+func (h *Hash) baseIndexForKey(k HasherKey) (uint, shortHash) {
 	var s HashState = h.seed
-	k.KeyHash(&s)
+	k.HashKey(&s)
 	return h.baseIndex(&s), s.shortHash()
 }
 
-func (h *Hash) search(k Hasher) (baseIndex, matchDiff, freeDiff uint, kh shortHash, ok bool) {
-	baseIndex, kh = h.baseIndexForKey(k)
+func (h *Hash) baseIndexForIndex(i uint) (uint, shortHash) {
+	var s HashState = h.seed
+	h.Hasher.HashIndex(&s, i)
+	return h.baseIndex(&s), s.shortHash()
+}
+
+func (h *Hash) searchKey(k HasherKey) (baseIndex, matchDiff, freeDiff uint, kh shortHash, ok bool) {
 	n := uint(1) << h.log2EltsPerBucket
 	freeDiff = n
-	for diff := uint(0); diff < n; diff++ {
+	matchDiff = n
+	if len(h.shortHash) == 0 {
+		return
+	}
+
+	baseIndex, kh = h.baseIndexForKey(k)
+	diff := uint(0)
+	for ; diff < n; diff++ {
 		i := baseIndex ^ diff
-		sh := h.shortHash[i]
-		if sh == kh && k.KeyEqual(i) {
-			matchDiff = diff
-			ok = true
-			break
-		}
-		if !sh.isValid() && freeDiff >= n {
+		if sh := h.shortHash[i]; sh == kh {
+			h.stats.compare(1)
+			if k.HashKeyEqual(h.Hasher, i) {
+				matchDiff = diff
+				ok = true
+				break
+			}
+		} else if !sh.isValid() && freeDiff >= n {
 			freeDiff = diff
 		}
 	}
+	h.stats.search(diff)
 	return
+}
+
+// Search for an empty slot for key at index i.
+func (h *Hash) searchIndex(ki uint) (uint, bool) {
+	baseIndex, kh := h.baseIndexForIndex(ki)
+	diff := uint(0)
+	n := uint(1) << h.log2EltsPerBucket
+	for ; diff < n; diff++ {
+		i := baseIndex ^ diff
+		sh := h.shortHash[i]
+		if !sh.isValid() {
+			h.shortHash[i] = kh
+			return i, true
+		}
+	}
+	return diff, false
 }
 
 func (h *Hash) ForeachIndex(f func(i uint)) {
@@ -219,9 +282,12 @@ func (h *Hash) ForeachIndex(f func(i uint)) {
 	}
 }
 
-func (h *Hash) Get(k Hasher) (i uint, ok bool) {
+func (h *Hash) Elts() uint { return uint(h.nElts) }
+func (h *Hash) Cap() uint  { return uint(h.cap) }
+
+func (h *Hash) Get(k HasherKey) (i uint, ok bool) {
 	var bi, mi uint
-	if bi, mi, _, _, ok = h.search(k); ok {
+	if bi, mi, _, _, ok = h.searchKey(k); ok {
 		i = bi ^ mi
 	}
 	return i, ok
@@ -229,21 +295,107 @@ func (h *Hash) Get(k Hasher) (i uint, ok bool) {
 
 func (h *Hash) diffValid(d uint) bool { return d>>h.log2EltsPerBucket == 0 }
 
-func (h *Hash) Set(k Hasher) (i uint, exists bool) {
+func (h *Hash) Set(k HasherKey) (i uint, exists bool) {
 	var (
 		bi, mi, fi uint
 		kh         shortHash
 	)
-	bi, mi, fi, kh, exists = h.search(k)
+	bi, mi, fi, kh, exists = h.searchKey(k)
 	if exists {
 		// Key already exists.
 		i = bi ^ mi
 	} else if h.diffValid(fi) {
 		// Use up free slot in bucket.
-		i = fi ^ mi
+		i = bi ^ fi
 		h.shortHash[i] = kh
+		h.nElts++
 	} else {
 		// Bucket full.
+		save := h.shortHash
+		for {
+			h.grow()
+			if h.copy(save) {
+				break
+			}
+		}
+		return h.Set(k)
+	}
+	return
+}
+
+func (h *Hash) Unset(k HasherKey) (i uint, ok bool) {
+	var bi, mi uint
+	bi, mi, _, _, ok = h.searchKey(k)
+	if ok {
+		i = bi ^ mi
+		h.shortHash[i] = shortHashNil
+		h.nElts--
+	}
+	return
+}
+
+func (h *Hash) grow() {
+	h.cap = h.cap.Next()
+
+	log2c0, log2c1 := h.cap.Log2()
+	h.log2Cap[0] = uint8(log2c0)
+	h.log2Cap[1] = 0
+	if log2c1 != CapNil {
+		h.log2Cap[1] = uint8(log2c1)
+	}
+
+	// For approx occupancy of .5 = 2^-1, probability of a full bucket of size M is 2^-(1 + M).
+	// So with N_BUCKETS = (2^l0 + 2^l1) / 2^M we have the probability that at least one bucket
+	// is full is (2^l0 + 2^l1) / 2^(2M + 1) ~ 1.  So, we set l0 = 2M + 1.
+	h.log2EltsPerBucket = uint8((log2c0 - 1) / 2)
+
+	if log2c1 == CapNil {
+		// No limit for table 0.
+		h.limit0 = ^uint32(0)
+	} else {
+		// Capacity must be even number of buckets.
+		if h.log2EltsPerBucket > h.log2Cap[1] {
+			log2c1 = Cap(h.log2EltsPerBucket)
+			h.cap = (1 << log2c0) | (1 << log2c1)
+			h.log2Cap[1] = uint8(log2c1)
+		}
+
+		// 2^32 2^i_0 / (2^i_0 + 2^i_1).
+		h.limit0 = uint32(uint64(1) << (32 + log2c0) / uint64(h.cap))
+	}
+
+	for i := range h.seed {
+		h.seed[i] = hash64(rand.Int63())
+	}
+
+	h.shortHash = make([]shortHash, h.cap, h.cap)
+	h.nElts = 0
+	return
+}
+
+func (h *Hash) copy(sh []shortHash) (ok bool) {
+	if cap(h.ResizeRemaps) < len(sh) {
+		h.ResizeRemaps = make([]HashRemap, len(sh))
+	}
+	var src, dst, n, l uint
+	l = uint(len(sh))
+	for src = 0; src < l; src++ {
+		if sh[src].isValid() {
+			if dst, ok = h.searchIndex(src); ok {
+				h.ResizeRemaps[n].src = src
+				h.ResizeRemaps[n].dst = dst
+				n++
+			} else {
+				break
+			}
+		}
+	}
+	if ok = src >= l; ok {
+		if h.ResizeRemaps != nil {
+			h.ResizeRemaps = h.ResizeRemaps[:n]
+		}
+		h.Hasher.HashResize()
+		h.nElts = n
 	}
 	return
 }
