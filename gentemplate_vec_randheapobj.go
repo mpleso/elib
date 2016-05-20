@@ -32,3 +32,5 @@ func (p *randHeapObjVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p randHeapObjVec) Len() uint { return uint(len(p)) }

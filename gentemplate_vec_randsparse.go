@@ -32,3 +32,5 @@ func (p *randSparseVec) Validate(i uint) {
 		*p = (*p)[:l]
 	}
 }
+
+func (p randSparseVec) Len() uint { return uint(len(p)) }
