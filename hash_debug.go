@@ -32,20 +32,10 @@ func (k *uiKey) HashKey(s *HashState)               { s.HashPointer(unsafe.Point
 func (k *uiKey) HashKeyEqual(h Hasher, i uint) bool { return *k == h.(*uiHash).pairs[i].k }
 func (h *uiHash) HashIndex(s *HashState, i uint)    { h.pairs[i].k.HashKey(s) }
 func (h *uiHash) HashResize() {
+	src, dst := h.pairs, make([]uiPair, h.Cap())
 	rs := h.ResizeRemaps
-	i, n := 0, len(rs)
-	dst := make([]uiPair, h.Cap())
-	src := h.pairs
-	for i+4 <= n {
-		dst[rs[i+0].dst] = src[rs[i+0].src]
-		dst[rs[i+1].dst] = src[rs[i+1].src]
-		dst[rs[i+2].dst] = src[rs[i+2].src]
-		dst[rs[i+3].dst] = src[rs[i+3].src]
-		i += 4
-	}
-	for i < n {
-		dst[rs[i+0].dst] = src[rs[i+0].src]
-		i += 1
+	for i := range rs {
+		dst[rs[i].dst] = src[rs[i].src]
 	}
 	h.pairs = dst
 }

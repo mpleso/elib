@@ -309,8 +309,6 @@ func (h *Hash) Get(k HasherKey) (i uint, ok bool) {
 	return i, ok
 }
 
-func (h *Hash) diffValid(d uint) bool { return d>>h.log2EltsPerBucket == 0 }
-
 func (h *Hash) Set(k HasherKey) (i uint, exists bool) {
 	var (
 		bi, fi, mi uint
