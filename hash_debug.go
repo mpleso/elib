@@ -28,9 +28,9 @@ func (p *uiPair) Equal(q *uiPair) bool { return p.k == q.k && p.v == q.v }
 
 //go:generate gentemplate -d Package=elib -id uiPair -d VecType=uiPairVec -d Type=uiPair -tags debug vec.tmpl
 
-func (k uiKey) HashKey(s *HashState)               { s.HashPointer(unsafe.Pointer(&k), unsafe.Sizeof(k)) }
-func (k uiKey) HashKeyEqual(h Hasher, i uint) bool { return k == h.(*uiHash).pairs[i].k }
-func (h *uiHash) HashIndex(s *HashState, i uint)   { h.pairs[i].k.HashKey(s) }
+func (k *uiKey) HashKey(s *HashState)               { s.HashPointer(unsafe.Pointer(k), unsafe.Sizeof(*k)) }
+func (k *uiKey) HashKeyEqual(h Hasher, i uint) bool { return *k == h.(*uiHash).pairs[i].k }
+func (h *uiHash) HashIndex(s *HashState, i uint)    { h.pairs[i].k.HashKey(s) }
 func (h *uiHash) HashResize() {
 	rs := h.ResizeRemaps
 	i, n := 0, len(rs)
@@ -98,12 +98,9 @@ func (t *testHash) doValidate() (err error) {
 	h := &t.uiHash
 	for pi := uint(0); pi < t.pairs.Len(); pi++ {
 		p := &t.pairs[pi]
-		i, ok := h.Get(p.k)
+		i, ok := h.Get(&p.k)
 		if got, want := ok, t.inserted.Get(pi); got != want {
 			err = fmt.Errorf("get ok %v != inserted %v", got, want)
-			j, ok1 := h.Get(p.k)
-			_ = j
-			_ = ok1
 			return
 		}
 		if ok && !p.Equal(&h.pairs[i]) {
@@ -159,19 +156,20 @@ func runHashTest(t *testHash) (err error) {
 
 	h.Hasher = h
 	zero := uiPair{}
+	start := time.Now()
 	var iter int
 	for ; iter < int(t.iterations); iter++ {
 		pi := uint(rand.Intn(int(t.nKeys)))
 		p := &t.pairs[pi]
 		var was bool
 		if t.inserted, was = t.inserted.Invert2(pi); !was {
-			i, exists := h.Set(p.k)
+			i, exists := h.Set(&p.k)
 			if exists {
 				panic("exists")
 			}
 			h.pairs[i] = *p
 		} else {
-			i, ok := h.Unset(p.k)
+			i, ok := h.Unset(&p.k)
 			if !ok {
 				panic("unset")
 			}
@@ -193,6 +191,7 @@ func runHashTest(t *testHash) (err error) {
 		}
 		iter++
 	}
-	fmt.Printf("%d iterations: %s\n", iter, h)
+	dt := time.Since(start)
+	fmt.Printf("%d iterations: %e iter/sec %s\n", iter, float64(iter)/dt.Seconds(), h)
 	return
 }

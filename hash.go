@@ -170,10 +170,12 @@ type Hash struct {
 	bitDiffs          []bitDiff
 	maxBucketBitDiffs []bitDiff
 	nElts             uint
+	ResizeRemaps      []HashRemap
 	stats             struct {
+		grows           uint64
+		copies          uint64
 		get, set, unset stats
 	}
-	ResizeRemaps []HashRemap
 }
 
 // Bit difference plus 1.
@@ -232,14 +234,9 @@ func (h *Hash) baseIndexForIndex(s *HashState, i uint) uint {
 
 func (h *Hash) empty() bool { return len(h.bitDiffs) == 0 }
 
-func (h *Hash) searchKey(s *HashState, st *stats, k HasherKey) (baseIndex, matchDiff uint, ok bool) {
+func (h *Hash) searchBase(baseIndex uint, st *stats, k HasherKey) (matchDiff uint, ok bool) {
 	n := uint(1) << h.log2EltsPerBucket
 	matchDiff = n
-	if h.empty() {
-		return
-	}
-
-	baseIndex = h.baseIndexForKey(s, k)
 	bucketIndex := baseIndex >> h.log2EltsPerBucket
 	maxValidDiff := h.maxBucketBitDiffs[bucketIndex]
 	diff := uint(0)
@@ -260,12 +257,15 @@ func (h *Hash) searchKey(s *HashState, st *stats, k HasherKey) (baseIndex, match
 	return
 }
 
+func (h *Hash) searchKey(s *HashState, st *stats, k HasherKey) (baseIndex, matchDiff uint, ok bool) {
+	baseIndex = h.baseIndexForKey(s, k)
+	matchDiff, ok = h.searchBase(baseIndex, st, k)
+	return
+}
+
 // Search for an empty slot for key at index i.
 func (h *Hash) searchFreeIndex(baseIndex uint) (i, diff uint, ok bool) {
 	n := uint(1) << h.log2EltsPerBucket
-	if h.empty() {
-		return
-	}
 	for ; diff < n; diff++ {
 		i = baseIndex ^ diff
 		if bd := h.bitDiffs[i]; !bd.isValid() {
@@ -296,9 +296,12 @@ func (h *Hash) Elts() uint { return uint(h.nElts) }
 func (h *Hash) Cap() uint  { return uint(h.cap) }
 
 func (h *Hash) Get(k HasherKey) (i uint, ok bool) {
+	if h.empty() {
+		return
+	}
 	var (
-		bi, mi uint
 		s      HashState
+		bi, mi uint
 	)
 	if bi, mi, ok = h.searchKey(&s, &h.stats.get, k); ok {
 		i = bi ^ mi
@@ -310,20 +313,33 @@ func (h *Hash) diffValid(d uint) bool { return d>>h.log2EltsPerBucket == 0 }
 
 func (h *Hash) Set(k HasherKey) (i uint, exists bool) {
 	var (
-		bi, mi uint
-		s      HashState
+		bi, fi, mi uint
+		s          HashState
 	)
-	bi, mi, exists = h.searchKey(&s, &h.stats.set, k)
-	if exists {
-		// Key already exists.
-		i = bi ^ mi
-	} else if _, fi, ok := h.searchFreeIndex(bi); ok {
-		// Use up free slot in bucket.
-		i = bi ^ fi
-		h.bitDiffs[i].set(h, bi, fi)
-		h.nElts++
-	} else {
-		// Bucket full.
+	nonEmpty := !h.empty()
+	for {
+		if nonEmpty {
+			bi, mi, exists = h.searchKey(&s, &h.stats.set, k)
+		}
+		if exists {
+			// Key already exists.
+			i = bi ^ mi
+			return
+		}
+
+		foundFree := false
+		if nonEmpty {
+			_, fi, foundFree = h.searchFreeIndex(bi)
+		}
+		if foundFree {
+			// Use up free slot in bucket.
+			i = bi ^ fi
+			h.bitDiffs[i].set(h, bi, fi)
+			h.nElts++
+			return
+		}
+
+		// Bucket full: grow hash and copy elements.
 		save := h.bitDiffs
 		for {
 			h.grow()
@@ -331,7 +347,7 @@ func (h *Hash) Set(k HasherKey) (i uint, exists bool) {
 				break
 			}
 		}
-		return h.Set(k)
+		nonEmpty = true
 	}
 	return
 }
@@ -351,6 +367,7 @@ func (h *Hash) Unset(k HasherKey) (i uint, ok bool) {
 }
 
 func (h *Hash) grow() {
+	h.stats.grows++
 	h.cap = h.cap.Next()
 
 	log2c0, log2c1 := h.cap.Log2()
@@ -364,6 +381,11 @@ func (h *Hash) grow() {
 	// So with N_BUCKETS = (2^l0 + 2^l1) / 2^M we have the probability that at least one bucket
 	// is full is (2^l0 + 2^l1) / 2^(2M + 1) ~ 1.  So, we set l0 = 2M + 1.
 	h.log2EltsPerBucket = uint8((log2c0 - 1) / 2)
+
+	// Since bit diff is only 8 bits, cap bucket size.
+	if h.log2EltsPerBucket > 7 {
+		h.log2EltsPerBucket = 7
+	}
 
 	if log2c1 == CapNil {
 		// No limit for table 0.
@@ -392,6 +414,7 @@ func (h *Hash) grow() {
 }
 
 func (h *Hash) copy(s *HashState, bds []bitDiff) (ok bool) {
+	h.stats.copies++
 	if cap(h.ResizeRemaps) < len(bds) {
 		h.ResizeRemaps = make([]HashRemap, len(bds))
 	}
@@ -426,6 +449,6 @@ func (s *stats) String() (v string) {
 }
 
 func (h *Hash) String() string {
-	return fmt.Sprintf("elts %d, cap %d, bucket: 2^%d\n    get: %s\n    set: %s\n  unset: %s",
-		h.Elts(), h.Cap(), h.log2EltsPerBucket, &h.stats.get, &h.stats.set, &h.stats.unset)
+	return fmt.Sprintf("elts %d, cap %d, bucket: 2^%d, grows %d, copies %d\n    get: %s\n    set: %s\n  unset: %s",
+		h.Elts(), h.Cap(), h.log2EltsPerBucket, h.stats.grows, h.stats.copies, &h.stats.get, &h.stats.set, &h.stats.unset)
 }
