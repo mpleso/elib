@@ -3,17 +3,15 @@ package elib
 import (
 	"fmt"
 	"math/rand"
-	"reflect"
 	"unsafe"
 )
 
 type hash64 uint64
-
-func (h hash64) rotate(n hash64) hash64 { return (h << n) | (h >> (64 - n)) }
-
 type HashState [2]hash64
 
-func (s *HashState) mixStep(a, b, c, n hash64) (hash64, hash64, hash64) {
+func (h hash64) rotate(n uint) hash64 { return (h << n) | (h >> (64 - n)) }
+
+func (s *HashState) mixStep(a, b, c hash64, n uint) (hash64, hash64, hash64) {
 	a = a.rotate(n) + b
 	c ^= a
 	return a, b, c
@@ -38,14 +36,15 @@ func (s *HashState) mix(h0, h1, h2, h3 hash64) (hash64, hash64, hash64, hash64) 
 	return h0, h1, h2, h3
 }
 
-func (*HashState) finStep(a, b, n hash64) (hash64, hash64) {
+func (*HashState) finStep(a, b hash64, n uint) (hash64, hash64) {
 	a ^= b
 	b = b.rotate(n)
 	a += b
 	return a, b
 }
 
-func (s *HashState) finalize(h0, h1, h2, h3 hash64) (hash64, hash64, hash64, hash64) {
+// Finalize hash state.
+func (s *HashState) Finalize(h0, h1, h2, h3 hash64) {
 	h3, h2 = s.finStep(h3, h2, 15)
 	h0, h3 = s.finStep(h0, h3, 52)
 	h1, h0 = s.finStep(h1, h0, 26)
@@ -60,94 +59,85 @@ func (s *HashState) finalize(h0, h1, h2, h3 hash64) (hash64, hash64, hash64, has
 	h0, h3 = s.finStep(h0, h3, 25)
 	h1, h0 = s.finStep(h1, h0, 63)
 
+	s[0] = h0
+	s[1] = h1
+}
+
+func (s *HashState) get64(p unsafe.Pointer, i int) uint64 { return UnalignedUint64(p, uintptr(i)) }
+func (s *HashState) get32(p unsafe.Pointer, i int) uint32 { return UnalignedUint32(p, uintptr(i)) }
+func (s *HashState) get16(p unsafe.Pointer, i int) uint16 { return UnalignedUint16(p, uintptr(i)) }
+
+// Mix up to 256 bits of data x0..x3 into hash state.
+func (s *HashState) MixUint64(h0, h1, h2, h3 hash64, x0, x1, x2, x3 uint64) (hash64, hash64, hash64, hash64) {
+	h2 += hash64(x0)
+	h3 += hash64(x1)
+	h0, h1, h2, h3 = s.mix(h0, h1, h2, h3)
+	h0 += hash64(x2)
+	h1 += hash64(x3)
 	return h0, h1, h2, h3
 }
 
-func (s *HashState) get64(b []byte, i int) hash64 {
-	return hash64(unalignedUint64(unsafe.Pointer(&b[i])))
-}
-func (s *HashState) get32(b []byte, i int) hash64 {
-	return hash64(unalignedUint32(unsafe.Pointer(&b[i])))
-}
-func (s *HashState) get16(b []byte, i int) hash64 {
-	return hash64(unalignedUint16(unsafe.Pointer(&b[i])))
-}
-
-func (s *HashState) mixSlice(h0, h1, h2, h3 hash64, b []byte) (hash64, hash64, hash64, hash64) {
-	n := len(b)
+// Mix data given by pointer and size into hash state.
+func (s *HashState) MixPointer(h0, h1, h2, h3 hash64, p unsafe.Pointer, size uintptr) (hash64, hash64, hash64, hash64) {
+	n := int(size)
 	i := 0
 
 	n8 := n &^ 7
 
 	for i+4*8 <= n8 {
-		h2 += s.get64(b, i+0*8)
-		h3 += s.get64(b, i+1*8)
-		h0, h1, h2, h3 = s.mix(h0, h1, h2, h3)
-		h0 += s.get64(b, i+2*8)
-		h1 += s.get64(b, i+3*8)
+		h0, h1, h2, h3 = s.MixUint64(h0, h1, h2, h3,
+			s.get64(p, i*0*8), s.get64(p, i*1*8),
+			s.get64(p, i*2*8), s.get64(p, i*3*8))
 		i += 4 * 8
 	}
 
 	if i+2*8 <= n8 {
-		h2 += s.get64(b, i+0*8)
-		h3 += s.get64(b, i+1*8)
-		h0, h1, h2, h3 = s.mix(h0, h1, h2, h3)
+		h0, h1, h2, h3 = s.MixUint64(h0, h1, h2, h3, s.get64(p, i*0*8), s.get64(p, i*1*8), 0, 0)
 		i += 2 * 8
 	}
 
 	if i+1*8 <= n8 {
-		h2 += s.get64(b, i)
+		h2 += hash64(s.get64(p, i))
 		i += 1 * 8
 	}
 
 	n4 := (n - i) &^ 3
 	if i+1*4 <= n4 {
-		h3 += s.get32(b, i)
+		h3 += hash64(s.get32(p, i))
 		i += 1 * 4
 	}
 
 	n2 := (n - i) &^ 1
 	if i+1*2 <= n2 {
-		h3 += s.get16(b, i) << 32
+		h3 += hash64(s.get16(p, i)) << 32
 		i += 1 * 2
-	}
-
-	if i < n {
-		h3 += hash64(b[i]) << (32 + 16)
 	}
 
 	return h0, h1, h2, h3
 }
 
-func (s *HashState) hashSlice(b []byte) {
+func (s *HashState) Init() (hash64, hash64, hash64, hash64) {
 	// A constant which:
 	//  * is not zero
 	//  * is odd
 	//  * is a not-very-regular mix of 1's and 0's
 	//  * does not need any other special mathematical properties.
 	const seedConst hash64 = 0xdeadbeefdeadbeef
-
-	h0, h1, h2, h3 := s[0], s[1], seedConst, seedConst
-
-	// Mix in data length.
-	h0 += hash64(len(b))
-
-	h0, h1, h2, h3 = s.mixSlice(h0, h1, h2, h3, b)
-
-	h0, h1, h2, h3 = s.finalize(h0, h1, h2, h3)
-
-	s[0], s[1] = h0, h1
+	return s[0], s[1], seedConst, seedConst
 }
 
-func (s *HashState) seed(h0, h1 uint64) { s[0], s[1] = hash64(h0), hash64(h1) }
+func (s *HashState) HashUint64(x0, x1, x2, x3 uint64) {
+	h0, h1, h2, h3 := s.Init()
+	h0, h1, h2, h3 = s.MixUint64(h0, h1, h2, h3, x0, x1, x2, x3)
+	s.Finalize(h0, h1, h2, h3)
+}
 
 func (s *HashState) HashPointer(p unsafe.Pointer, size uintptr) {
-	var h reflect.SliceHeader
-	h.Data = uintptr(p)
-	h.Len = int(size)
-	h.Cap = int(size)
-	b := *(*[]byte)(unsafe.Pointer(&h))
-	s.hashSlice(b)
+	h0, h1, h2, h3 := s.Init()
+	// Mix in data length.
+	h0 += hash64(size)
+	h0, h1, h2, h3 = s.MixPointer(h0, h1, h2, h3, p, size)
+	s.Finalize(h0, h1, h2, h3)
 }
 
 type stats struct {
@@ -170,7 +160,7 @@ type Hash struct {
 	bitDiffs          []bitDiff
 	maxBucketBitDiffs []bitDiff
 	nElts             uint
-	ResizeRemaps      []HashRemap
+	resizeCopies      []HashResizeCopy
 	stats             struct {
 		grows           uint64
 		copies          uint64
@@ -193,28 +183,32 @@ func (d *bitDiff) set(h *Hash, baseIndex, diff uint) {
 	*d = bd
 }
 
-type HashRemap struct{ src, dst uint }
+type HashResizeCopy struct{ src, dst uint }
 
 type Hasher interface {
+	// Compute hash for key with given index.
 	HashIndex(s *HashState, i uint)
-	HashResize()
+
+	// Hash has just been resized to new capacity.
+	// Function must copy elements from old table to new table.
+	HashResize(newCap uint, copies []HashResizeCopy)
 }
 
 type HasherKey interface {
-	// k0.Equal(keys[i]) returns k0 == k1.
-	HashKeyEqual(h Hasher, i uint) bool
 	// Compute hash for key.
 	HashKey(s *HashState)
+
+	// k0.Equal(keys[i]) returns k0 == k1.
+	HashKeyEqual(h Hasher, i uint) bool
 }
 
 func (h *Hash) capMask(i uint) uint { return uint(1)<<h.log2Cap[i] - 1 }
-
 func (h *HashState) limit() uint32  { return uint32(h[0] >> 32) }
 func (h *HashState) offset() hash64 { return h[1] }
 
 func (h *Hash) baseIndex(s *HashState) uint {
 	is_table_1 := uint(0)
-	if uint32(s[0]) > h.limit0 {
+	if s.limit() > h.limit0 {
 		is_table_1 = 1
 	}
 	return uint(s.offset())&h.capMask(is_table_1) + (is_table_1 << h.log2Cap[0])
@@ -364,10 +358,24 @@ func (h *Hash) Unset(k HasherKey) (i uint, ok bool) {
 	return
 }
 
+const (
+	hashLog2CapMinUnit = 3
+	hashLog2CapMinSize = 4
+)
+
 func (h *Hash) grow() {
 	h.stats.grows++
-	h.cap = h.cap.Next()
+	h.cap = h.cap.NextUnit(hashLog2CapMinSize, hashLog2CapMinUnit)
+	h.alloc()
+}
 
+func (h *Hash) Init(cap uint) {
+	h.cap = Cap(cap).Round(hashLog2CapMinUnit)
+	h.alloc()
+	h.Hasher.HashResize(uint(h.cap), h.resizeCopies)
+}
+
+func (h *Hash) alloc() {
 	log2c0, log2c1 := h.cap.Log2()
 	h.log2Cap[0] = uint8(log2c0)
 	h.log2Cap[1] = 0
@@ -397,7 +405,7 @@ func (h *Hash) grow() {
 		}
 
 		// 2^32 2^i_0 / (2^i_0 + 2^i_1).
-		h.limit0 = uint32(uint64(1) << (32 + log2c0) / uint64(h.cap))
+		h.limit0 = uint32((uint64(1) << (32 + log2c0)) / uint64(h.cap))
 	}
 
 	for i := range h.seed {
@@ -413,16 +421,16 @@ func (h *Hash) grow() {
 
 func (h *Hash) copy(s *HashState, bds []bitDiff) (ok bool) {
 	h.stats.copies++
-	if cap(h.ResizeRemaps) < len(bds) {
-		h.ResizeRemaps = make([]HashRemap, len(bds))
+	if cap(h.resizeCopies) < len(bds) {
+		h.resizeCopies = make([]HashResizeCopy, len(bds))
 	}
 	var src, dst, n, l uint
 	l = uint(len(bds))
 	for src = 0; src < l; src++ {
 		if bds[src].isValid() {
 			if dst, ok = h.searchIndex(s, src); ok {
-				h.ResizeRemaps[n].src = src
-				h.ResizeRemaps[n].dst = dst
+				h.resizeCopies[n].src = src
+				h.resizeCopies[n].dst = dst
 				n++
 			} else {
 				break
@@ -430,10 +438,10 @@ func (h *Hash) copy(s *HashState, bds []bitDiff) (ok bool) {
 		}
 	}
 	if ok = src >= l; ok {
-		if h.ResizeRemaps != nil {
-			h.ResizeRemaps = h.ResizeRemaps[:n]
+		if h.resizeCopies != nil {
+			h.resizeCopies = h.resizeCopies[:n]
 		}
-		h.Hasher.HashResize()
+		h.Hasher.HashResize(h.Cap(), h.resizeCopies)
 		h.nElts = n
 	}
 	return

@@ -76,3 +76,12 @@ func estimateFrequency(dt, unit, tolerance float64) {
 	secsPerCycle = 1 / cyclesPerSec
 	return
 }
+
+// Aid for timing blocks of code.
+type Timing [2]Time
+
+// Number of cpu clock cycles per operation.
+func (t *Timing) ClocksPer(ops uint) float64 { return float64(t[1]-t[0]) / float64(ops) }
+
+// Number of operations per second.
+func (t *Timing) PerSecond(ops uint) float64 { return float64(ops) / (t[1] - t[0]).Seconds() }

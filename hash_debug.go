@@ -3,13 +3,14 @@
 package elib
 
 import (
+	"github.com/platinasystems/elib/cpu"
+
 	"flag"
 	"fmt"
 	"math/rand"
 	"os"
 	"runtime/pprof"
 	"time"
-	"unsafe"
 )
 
 type uiHash struct {
@@ -20,20 +21,19 @@ type uiHash struct {
 type uiKey uint64
 type uiValue uint64
 type uiPair struct {
-	k uiKey
-	v uiValue
+	key   uiKey
+	value uiValue
 }
 
-func (p *uiPair) Equal(q *uiPair) bool { return p.k == q.k && p.v == q.v }
+func (p *uiPair) Equal(q *uiPair) bool { return p.key == q.key && p.value == q.value }
 
 //go:generate gentemplate -d Package=elib -id uiPair -d VecType=uiPairVec -d Type=uiPair -tags debug vec.tmpl
 
-func (k *uiKey) HashKey(s *HashState)               { s.HashPointer(unsafe.Pointer(k), unsafe.Sizeof(*k)) }
-func (k *uiKey) HashKeyEqual(h Hasher, i uint) bool { return *k == h.(*uiHash).pairs[i].k }
-func (h *uiHash) HashIndex(s *HashState, i uint)    { h.pairs[i].k.HashKey(s) }
-func (h *uiHash) HashResize() {
-	src, dst := h.pairs, make([]uiPair, h.Cap())
-	rs := h.ResizeRemaps
+func (k *uiKey) HashKey(s *HashState)               { s.HashUint64(uint64(*k), 0, 0, 0) }
+func (k *uiKey) HashKeyEqual(h Hasher, i uint) bool { return *k == h.(*uiHash).pairs[i].key }
+func (h *uiHash) HashIndex(s *HashState, i uint)    { h.pairs[i].key.HashKey(s) }
+func (h *uiHash) HashResize(newCap uint, rs []HashResizeCopy) {
+	src, dst := h.pairs, make([]uiPair, newCap)
 	for i := range rs {
 		dst[rs[i].dst] = src[rs[i].src]
 	}
@@ -58,7 +58,8 @@ type testHash struct {
 
 	nKeys Count
 
-	verbose int
+	verbose  int
+	testTime bool
 
 	profile string
 }
@@ -75,6 +76,7 @@ func HashTest() {
 	flag.Int64Var(&t.seed, "seed", 0, "Seed for random number generator")
 	flag.Var(&t.nKeys, "keys", "Number of random keys")
 	flag.IntVar(&t.verbose, "verbose", 0, "Be verbose")
+	flag.BoolVar(&t.testTime, "time", false, "Time hash functions")
 	flag.StringVar(&t.profile, "profile", "", "Write CPU profile to file")
 	flag.Parse()
 
@@ -88,7 +90,7 @@ func (t *testHash) doValidate() (err error) {
 	h := &t.uiHash
 	for pi := uint(0); pi < t.pairs.Len(); pi++ {
 		p := &t.pairs[pi]
-		i, ok := h.Get(&p.k)
+		i, ok := h.Get(&p.key)
 		if got, want := ok, t.inserted.Get(pi); got != want {
 			err = fmt.Errorf("get ok %v != inserted %v", got, want)
 			return
@@ -130,8 +132,8 @@ func runHashTest(t *testHash) (err error) {
 	t.pairs.Resize(uint(t.nKeys))
 	log2n := Word(t.nKeys).MaxLog2()
 	for i := range t.pairs {
-		t.pairs[i].k = uiKey((uint64(rand.Int63()) << log2n) + uint64(i))
-		t.pairs[i].v = uiValue(rand.Int63())
+		t.pairs[i].key = uiKey((uint64(rand.Int63()) << log2n) + uint64(i))
+		t.pairs[i].value = uiValue(rand.Int63())
 	}
 
 	if t.profile != "" {
@@ -145,6 +147,12 @@ func runHashTest(t *testHash) (err error) {
 	}
 
 	h.Hasher = h
+
+	if t.testTime {
+		t.timeHash()
+		return
+	}
+
 	zero := uiPair{}
 	start := time.Now()
 	var iter int
@@ -153,13 +161,13 @@ func runHashTest(t *testHash) (err error) {
 		p := &t.pairs[pi]
 		var was bool
 		if t.inserted, was = t.inserted.Invert2(pi); !was {
-			i, exists := h.Set(&p.k)
+			i, exists := h.Set(&p.key)
 			if exists {
 				panic("exists")
 			}
 			h.pairs[i] = *p
 		} else {
-			i, ok := h.Unset(&p.k)
+			i, ok := h.Unset(&p.key)
 			if !ok {
 				panic("unset")
 			}
@@ -184,4 +192,54 @@ func runHashTest(t *testHash) (err error) {
 	dt := time.Since(start)
 	fmt.Printf("%d iterations: %e iter/sec %s\n", iter, float64(iter)/dt.Seconds(), h)
 	return
+}
+
+func (t *testHash) timeHash() {
+	h := &t.uiHash
+	h.Init(uint(2 * t.nKeys))
+	var tm struct {
+		set, get, unset, delete cpu.Timing
+	}
+
+	{
+		niter := uint(len(t.pairs))
+		if niter < uint(t.iterations) {
+			niter = uint(t.iterations)
+		}
+		tm.set[0] = cpu.TimeNow()
+		pi := 0
+		for iter := uint(0); iter < niter; iter++ {
+			i, _ := h.Set(&t.pairs[pi].key)
+			h.pairs[i] = t.pairs[pi]
+			pi++
+			if pi >= len(t.pairs) {
+				pi = 0
+			}
+		}
+		tm.set[1] = cpu.TimeNow()
+		fmt.Printf("set: %.2f clocks/operation, %e per sec\n", tm.set.ClocksPer(niter), tm.set.PerSecond(niter))
+	}
+
+	{
+		tm.get[0] = cpu.TimeNow()
+		pi := 0
+		niter := uint(t.iterations)
+		for iter := uint(0); iter < niter; iter++ {
+			i, _ := h.Get(&t.pairs[pi].key)
+			h.pairs[i].value++
+		}
+		tm.get[1] = cpu.TimeNow()
+		fmt.Printf("get: %.2f clocks/operation, %e per sec\n", tm.get.ClocksPer(niter), tm.set.PerSecond(niter))
+	}
+
+	{
+		tm.unset[0] = cpu.TimeNow()
+		niter := uint(len(t.pairs))
+		for pi := range t.pairs {
+			i, _ := h.Unset(&t.pairs[pi].key)
+			h.pairs[i].value = 0
+		}
+		tm.unset[1] = cpu.TimeNow()
+		fmt.Printf("unset: %.2f clocks/operation, %e per sec\n", tm.unset.ClocksPer(niter), tm.unset.PerSecond(niter))
+	}
 }
