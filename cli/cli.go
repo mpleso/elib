@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 )
 
 type Writer interface {
@@ -222,8 +223,15 @@ func (m *Main) lookup(s *Scanner) (Commander, error) {
 	return nil, errors.New("ambiguous")
 }
 
+// As in text/scanner but allow - in identifier.
+func (s *Scanner) isIdentRune(ch rune, i int) bool {
+	return ch == '_' || ch == '-' || unicode.IsLetter(ch) || unicode.IsDigit(ch) && i > 0
+}
+
+//
 func (m *Main) Exec(w io.Writer, r io.Reader) error {
 	s := &Scanner{}
+	s.IsIdentRune = s.isIdentRune
 	s.Init(r)
 	c, err := m.lookup(s)
 	if err == nil {

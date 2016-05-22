@@ -65,6 +65,7 @@ type save struct {
 
 type Scanner struct {
 	scanner     scanner.Scanner
+	IsIdentRune func(ch rune, i int) bool
 	buf         []byte
 	savedTokens []savedToken
 	saveIndex   int
@@ -81,6 +82,7 @@ func (s *Scanner) Init(src io.Reader) *Scanner {
 	// We'll handle white space in next() below.
 	s.whitespace = s.scanner.Whitespace
 	s.scanner.Whitespace = 0
+	s.scanner.IsIdentRune = s.IsIdentRune
 	return s
 }
 
