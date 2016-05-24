@@ -35,7 +35,7 @@ func (h *uiHash) HashIndex(s *HashState, i uint)    { h.pairs[i].key.HashKey(s) 
 func (h *uiHash) HashResize(newCap uint, rs []HashResizeCopy) {
 	src, dst := h.pairs, make([]uiPair, newCap)
 	for i := range rs {
-		dst[rs[i].dst] = src[rs[i].src]
+		dst[rs[i].Dst] = src[rs[i].Src]
 	}
 	h.pairs = dst
 }
