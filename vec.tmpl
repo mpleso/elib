@@ -28,7 +28,7 @@ func (p * {{.VecType}}) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p * {{.VecType}}) Validate(i uint) {
+func (p * {{.VecType}}) Validate(i uint) *{{.Type}} {
 	c := {{template "elib" .Package}}Index(cap(*p))
 	l := {{template "elib" .Package}}Index(i) + 1
 	if l > c {
@@ -40,6 +40,7 @@ func (p * {{.VecType}}) Validate(i uint) {
 	if l > {{template "elib" .Package}}Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p {{.VecType}}) Len() uint { return uint(len(p)) }

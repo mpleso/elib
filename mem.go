@@ -25,8 +25,6 @@ func _ua64(p unsafe.Pointer, i, j uint) uint64 {
 	return uint64(q[i]) << (8 * j)
 }
 
-func PointerAdd(p unsafe.Pointer, i uintptr) unsafe.Pointer { return unsafe.Pointer(uintptr(p) + i) }
-
 func UnalignedUint16(p unsafe.Pointer, i uintptr) uint16 {
 	p = PointerAdd(p, i)
 	if supportsUnaligned {
@@ -62,5 +60,32 @@ func UnalignedUint64(p unsafe.Pointer, i uintptr) uint64 {
 	} else {
 		return _ua64(p, 0, 0) + _ua64(p, 1, 1) + _ua64(p, 2, 2) + _ua64(p, 3, 3) +
 			_ua64(p, 4, 4) + _ua64(p, 5, 5) + _ua64(p, 6, 6) + _ua64(p, 7, 7)
+	}
+}
+
+func PointerAdd(p unsafe.Pointer, i uintptr) unsafe.Pointer { return unsafe.Pointer(uintptr(p) + i) }
+
+func PointerPoison(p unsafe.Pointer, n uintptr) {
+	poison := uint64(0xdeadbeefdeadbeef)
+	i := uintptr(0)
+	for i+2*8 <= n {
+		*(*uint64)(PointerAdd(p, i+0*8)) = poison
+		*(*uint64)(PointerAdd(p, i+1*8)) = poison
+		i += 2 * 8
+	}
+	for i+1*8 <= n {
+		*(*uint64)(PointerAdd(p, i+0*8)) = poison
+		i += 1 * 8
+	}
+	for i+1*4 <= n {
+		*(*uint32)(PointerAdd(p, i+0*4)) = uint32(poison)
+		i += 1 * 4
+	}
+	for i+1*2 <= n {
+		*(*uint16)(PointerAdd(p, i+0*2)) = uint16(poison)
+		i += 1 * 2
+	}
+	if i < n {
+		*(*uint8)(PointerAdd(p, i)) = uint8(poison)
 	}
 }

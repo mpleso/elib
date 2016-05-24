@@ -183,7 +183,7 @@ func (d *bitDiff) set(h *Hash, baseIndex, diff uint) {
 	*d = bd
 }
 
-type HashResizeCopy struct{ src, dst uint }
+type HashResizeCopy struct{ Src, Dst uint }
 
 type Hasher interface {
 	// Compute hash for key with given index.
@@ -369,10 +369,11 @@ func (h *Hash) grow() {
 	h.alloc()
 }
 
-func (h *Hash) Init(cap uint) {
+func (h *Hash) Init(r Hasher, cap uint) {
 	h.cap = Cap(cap).Round(hashLog2CapMinUnit)
 	h.alloc()
-	h.Hasher.HashResize(uint(h.cap), h.resizeCopies)
+	h.Hasher = r
+	r.HashResize(uint(h.cap), h.resizeCopies)
 }
 
 func (h *Hash) alloc() {
@@ -429,8 +430,8 @@ func (h *Hash) copy(s *HashState, bds []bitDiff) (ok bool) {
 	for src = 0; src < l; src++ {
 		if bds[src].isValid() {
 			if dst, ok = h.searchIndex(s, src); ok {
-				h.resizeCopies[n].src = src
-				h.resizeCopies[n].dst = dst
+				h.resizeCopies[n].Src = src
+				h.resizeCopies[n].Dst = dst
 				n++
 			} else {
 				break

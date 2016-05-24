@@ -14,11 +14,6 @@ import (
 )
 {{end}}
 
-type {{.HeapType}}_data struct {
-     {{.Type}}
-     id {{template "elib" .Package}}Index
-}
-
 type {{.HeapType}} struct {
 	{{template "elib" .Package}}Heap
 	{{.Data}} []{{.Type}}
@@ -40,7 +35,7 @@ func (p * {{.HeapType}}) GetAligned(size, log2Alignment uint) (offset uint) {
 func (p * {{.HeapType}}) Get(size uint) uint { return p.GetAligned(size, 0) }
 
 func (p * {{.HeapType}}) Put(offset uint) {
-	p.Heap.Put(p.ids[offset])
+	p.Heap.Put(p.Id(offset))
 }
 
 func (p * {{.HeapType}}) Validate(i uint) {
@@ -59,4 +54,13 @@ func (p * {{.HeapType}}) Validate(i uint) {
 		p.{{.Data}} = p.{{.Data}}[:l]
 		p.ids = p.ids[:l]
 	}
+}
+
+func (p *{{.HeapType}}) Id(offset uint) {{template "elib" .Package}}Index {
+	return p.ids[offset]
+}
+
+func (p *{{.HeapType}}) Slice(offset uint) []{{.Type}} {
+	l := p.Len(p.Id(offset))
+	return p.{{.Data}}[offset:offset+l]
 }

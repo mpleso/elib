@@ -146,13 +146,12 @@ func runHashTest(t *testHash) (err error) {
 		defer func() { pprof.StopCPUProfile() }()
 	}
 
-	h.Hasher = h
-
 	if t.testTime {
 		t.timeHash()
 		return
 	}
 
+	h.Hasher = h
 	zero := uiPair{}
 	start := time.Now()
 	var iter int
@@ -196,7 +195,7 @@ func runHashTest(t *testHash) (err error) {
 
 func (t *testHash) timeHash() {
 	h := &t.uiHash
-	h.Init(uint(2 * t.nKeys))
+	h.Init(h, uint(2*t.nKeys))
 	var tm struct {
 		set, get, unset, delete cpu.Timing
 	}
