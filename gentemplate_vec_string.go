@@ -17,7 +17,7 @@ func (p *StringVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *StringVec) Validate(i uint) {
+func (p *StringVec) Validate(i uint) *string {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *StringVec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p StringVec) Len() uint { return uint(len(p)) }

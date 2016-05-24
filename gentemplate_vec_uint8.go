@@ -17,7 +17,7 @@ func (p *Uint8Vec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *Uint8Vec) Validate(i uint) {
+func (p *Uint8Vec) Validate(i uint) *uint8 {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *Uint8Vec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p Uint8Vec) Len() uint { return uint(len(p)) }

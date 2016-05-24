@@ -17,7 +17,7 @@ func (p *fibNodeVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *fibNodeVec) Validate(i uint) {
+func (p *fibNodeVec) Validate(i uint) *fibNode {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *fibNodeVec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p fibNodeVec) Len() uint { return uint(len(p)) }

@@ -17,7 +17,7 @@ func (p *ByteVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *ByteVec) Validate(i uint) {
+func (p *ByteVec) Validate(i uint) *byte {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *ByteVec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p ByteVec) Len() uint { return uint(len(p)) }

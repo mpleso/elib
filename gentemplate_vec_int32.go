@@ -17,7 +17,7 @@ func (p *Int32Vec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *Int32Vec) Validate(i uint) {
+func (p *Int32Vec) Validate(i uint) *int32 {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *Int32Vec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p Int32Vec) Len() uint { return uint(len(p)) }

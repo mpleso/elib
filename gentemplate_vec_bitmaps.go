@@ -17,7 +17,7 @@ func (p *BitmapsVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *BitmapsVec) Validate(i uint) {
+func (p *BitmapsVec) Validate(i uint) *[]Bitmap {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *BitmapsVec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p BitmapsVec) Len() uint { return uint(len(p)) }

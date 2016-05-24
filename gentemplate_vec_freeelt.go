@@ -17,7 +17,7 @@ func (p *freeEltVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *freeEltVec) Validate(i uint) {
+func (p *freeEltVec) Validate(i uint) *freeElt {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
@@ -29,6 +29,7 @@ func (p *freeEltVec) Validate(i uint) {
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p freeEltVec) Len() uint { return uint(len(p)) }
