@@ -10,20 +10,22 @@ import (
 )
 
 type Node struct {
-	name              string
-	index             uint
-	loop              *Loop
-	rxEvents          chan event.Actor
-	toLoop            chan struct{}
-	fromLoop          chan struct{}
-	eventVec          event.ActorVec
-	active            bool
-	activeCount       uint
-	dataCaller        inOutLooper
-	activePollerIndex uint
-	initOnce          sync.Once
-	initWg            sync.WaitGroup
-	outIns            []LooperIn
+	name                 string
+	index                uint
+	loop                 *Loop
+	rxEvents             chan event.Actor
+	toLoop               chan struct{}
+	fromLoop             chan struct{}
+	eventVec             event.ActorVec
+	active               bool
+	activeCount          uint
+	dataCaller           inOutLooper
+	activePollerIndex    uint
+	initOnce             sync.Once
+	initWg               sync.WaitGroup
+	outIns               []LooperIn
+	nextIndexByNodeIndex map[uint]uint
+	nodeIndexByNext      []uint
 }
 
 func (n *Node) GetNode() *Node   { return n }

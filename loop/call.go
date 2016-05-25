@@ -54,12 +54,11 @@ type activeNode struct {
 }
 
 type activePoller struct {
-	index             uint16
-	timeNow           cpu.Time
-	pollerNode        *Node
-	currentNode       *activeNode
-	activeNodes       []activeNode
-	nodeIndexByInType map[reflect.Type]uint32
+	index       uint16
+	timeNow     cpu.Time
+	pollerNode  *Node
+	currentNode *activeNode
+	activeNodes []activeNode
 	pollerStats
 	statsLastClear pollerStats
 }
@@ -85,7 +84,15 @@ func asLooperInSlice(v reflect.Value) (slice reflect.Value, ok bool) {
 	return
 }
 
-func (a *activeNode) analyzeOut(l *Loop, ap *activePoller) (err error) {
+func (a *activeNode) inType() reflect.Type {
+	return reflect.TypeOf(a.loopInMaker.MakeLoopIn())
+}
+
+func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
+	if a.looperOut == nil {
+		return
+	}
+
 	ptr := reflect.TypeOf(a.looperOut)
 	if ptr.Kind() != reflect.Ptr {
 		err = fmt.Errorf("not pointer")
@@ -95,18 +102,6 @@ func (a *activeNode) analyzeOut(l *Loop, ap *activePoller) (err error) {
 	if s.Kind() != reflect.Struct {
 		err = fmt.Errorf("not struct")
 		return
-	}
-
-	if ap.nodeIndexByInType == nil {
-		ap.nodeIndexByInType = make(map[reflect.Type]uint32)
-	}
-	if a.loopInMaker != nil {
-		inType := reflect.TypeOf(a.loopInMaker.MakeLoopIn())
-		if _, ok := ap.nodeIndexByInType[inType]; ok {
-			err = fmt.Errorf("duplicate nodes handle input type %T", inType)
-			return
-		}
-		ap.nodeIndexByInType[inType] = a.index
 	}
 
 	v := reflect.ValueOf(a.looperOut).Elem()
@@ -153,25 +148,44 @@ func (a *activeNode) addNext(i LooperIn) {
 	oi := i
 	if a.outSlice != nil {
 		as := *a.outSlice
+		sliceType := as.Type().Elem()
 		ai := int(in.nextIndex)
-		as = reflect.Append(as, reflect.ValueOf(i).Elem())
+		vi := reflect.ValueOf(i).Elem().Convert(sliceType)
+		as = reflect.Append(as, vi)
 		oi = as.Index(ai).Addr().Interface().(LooperIn)
 		(*a.outSlice).Set(as)
 	}
 	a.outIns = append(a.outIns, oi)
 }
 
-func (l *Loop) AddNext(r outNoder, next inNoder) (i uint) {
-	n := r.GetNode()
-	i = uint(len(n.outIns))
-	li := next.MakeLoopIn()
-	n.outIns = append(n.outIns, li)
-	for i := range l.activePollers {
-		l.activePollers[i].activeNodes[n.index].addNext(li)
+func (this *Node) findNext(next *Node, create bool) (nextIndex uint, found bool) {
+	if this.nextIndexByNodeIndex == nil {
+		this.nextIndexByNodeIndex = make(map[uint]uint)
+	}
+	if nextIndex, found = this.nextIndexByNodeIndex[next.index]; !found && create {
+		nextIndex = uint(len(this.outIns))
+		this.nextIndexByNodeIndex[next.index] = nextIndex
 	}
 	return
 }
-func AddNext(r outNoder, n inNoder) uint { return defaultLoop.AddNext(r, n) }
+
+func (l *Loop) AddNext(thisNoder Noder, nextNoder inNoder) (nextIndex uint) {
+	this, next := thisNoder.GetNode(), nextNoder.GetNode()
+
+	var ok bool
+	if nextIndex, ok = this.findNext(next, true); ok {
+		return
+	}
+
+	li := nextNoder.MakeLoopIn()
+	this.outIns = append(this.outIns, li)
+	this.nodeIndexByNext = append(this.nodeIndexByNext, next.index)
+	for i := range l.activePollers {
+		l.activePollers[i].activeNodes[this.index].addNext(li)
+	}
+	return
+}
+func AddNext(r Noder, n inNoder) uint { return defaultLoop.AddNext(r, n) }
 
 func (ap *activePoller) init(l *Loop, api uint) {
 	nNodes := uint(len(l.dataNodes))
@@ -195,10 +209,8 @@ func (ap *activePoller) init(l *Loop, api uint) {
 		if d, ok := n.(outLooper); ok {
 			a.outLooper = d
 		}
-		if a.looperOut != nil {
-			if err := a.analyzeOut(l, ap); err != nil {
-				l.Fatalf("%s: %s", nodeName(n), err)
-			}
+		if err := a.analyze(l, ap); err != nil {
+			l.Fatalf("%s: %s", nodeName(n), err)
 		}
 	}
 
@@ -210,8 +222,8 @@ func (ap *activePoller) init(l *Loop, api uint) {
 		a.out.alloc(uint(len(a.outIns)))
 		for xi := range a.outIns {
 			oi := a.outIns[xi]
-			inType := reflect.TypeOf(oi)
-			a.out.nextNodes[xi] = ap.nodeIndexByInType[inType]
+			aNode := l.dataNodes[a.index].GetNode()
+			a.out.nextNodes[xi] = uint32(aNode.nodeIndexByNext[xi])
 			i := oi.GetIn()
 			i.activeIndex = ap.index
 		}
@@ -367,16 +379,24 @@ type outNoder interface {
 	loopOutMaker
 }
 
-type inLooper interface {
-	Noder
+type InputLooper interface {
 	loopOutMaker
 	LoopInput(l *Loop, o LooperOut)
 }
 
-type outLooper interface {
-	Noder
+type OutputLooper interface {
 	loopInMaker
 	LoopOutput(l *Loop, i LooperIn)
+}
+
+type inLooper interface {
+	Noder
+	InputLooper
+}
+
+type outLooper interface {
+	Noder
+	OutputLooper
 }
 
 type inOutLooper interface {
