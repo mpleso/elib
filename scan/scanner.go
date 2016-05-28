@@ -137,6 +137,14 @@ func (s *Scanner) Peek() (tok rune) {
 	return
 }
 
+// Advance to next token if current token matches.
+func (s *Scanner) AdvanceIf(tok rune) (ok bool) {
+	if ok = s.Peek() == tok; ok {
+		s.scanner.Next()
+	}
+	return
+}
+
 func (s *Scanner) nextNonWhite() (tok rune, text string) {
 	tok, text = s.Scan()
 	for tok == Whitespace {
