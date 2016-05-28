@@ -223,12 +223,15 @@ func (m *Main) lookup(s *Scanner) (Commander, error) {
 	return nil, errors.New("ambiguous")
 }
 
-// As in text/scanner but allow - in identifier.
-func (s *Scanner) isIdentRune(ch rune, i int) bool {
-	return ch == '_' || ch == '-' || unicode.IsLetter(ch) || unicode.IsDigit(ch) && i > 0
+// As in text/scanner but allow - in identifier after first rune.
+func (s *Scanner) isIdentRune(ch rune, i int) (ok bool) {
+	ok = ch == '_' || unicode.IsLetter(ch)
+	if i > 0 {
+		ok = ok || ch == '-' || unicode.IsDigit(ch)
+	}
+	return
 }
 
-//
 func (m *Main) Exec(w io.Writer, r io.Reader) error {
 	s := &Scanner{}
 	s.IsIdentRune = s.isIdentRune
