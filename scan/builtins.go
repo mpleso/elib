@@ -40,10 +40,10 @@ func (b *Enable) Parse(s *Scanner) (err error) {
 
 func parseUint(s *Scanner, base, bitsize int) (v uint64, err error) {
 	tok, text := s.Scan()
-	if tok != Int {
-		err = s.UnexpectedError(Int, tok, text)
-	} else {
+	if tok == Int || (base > 10 && tok == Ident) {
 		v, err = strconv.ParseUint(text, base, bitsize)
+	} else {
+		err = s.UnexpectedError(Int, tok, text)
 	}
 	return
 }
@@ -81,6 +81,43 @@ func (x *Base10Uint64) Parse(s *Scanner) error {
 	v, err := parseUint(s, 10, 64)
 	if err == nil {
 		*x = Base10Uint64(v)
+	}
+	return err
+}
+
+type Base16Uint8 uint8
+type Base16Uint16 uint16
+type Base16Uint32 uint32
+type Base16Uint64 uint64
+
+func (x *Base16Uint8) Parse(s *Scanner) error {
+	v, err := parseUint(s, 16, 8)
+	if err == nil {
+		*x = Base16Uint8(v)
+	}
+	return err
+}
+
+func (x *Base16Uint16) Parse(s *Scanner) error {
+	v, err := parseUint(s, 16, 16)
+	if err == nil {
+		*x = Base16Uint16(v)
+	}
+	return err
+}
+
+func (x *Base16Uint32) Parse(s *Scanner) error {
+	v, err := parseUint(s, 16, 32)
+	if err == nil {
+		*x = Base16Uint32(v)
+	}
+	return err
+}
+
+func (x *Base16Uint64) Parse(s *Scanner) error {
+	v, err := parseUint(s, 16, 64)
+	if err == nil {
+		*x = Base16Uint64(v)
 	}
 	return err
 }
