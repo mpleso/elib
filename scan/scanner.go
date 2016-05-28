@@ -1,10 +1,7 @@
 package scan
 
 import (
-	"errors"
-	"fmt"
 	"io"
-	"strings"
 	"text/scanner"
 )
 
@@ -79,6 +76,8 @@ func (s *Scanner) Init(src io.Reader) *Scanner {
 	s.scanner.Init(src)
 	// Pass comments.
 	s.scanner.Mode &^= scanner.SkipComments
+	s.scanner.Mode &^= scanner.ScanFloats
+	s.scanner.Mode |= scanner.ScanInts
 	// We'll handle white space in next() below.
 	s.whitespace = s.scanner.Whitespace
 	s.scanner.Whitespace = 0
@@ -200,77 +199,3 @@ func (s *Scanner) Pos() Position {
 	}
 }
 func (pos Position) String() string { return scanner.Position(pos).String() }
-
-var NoMatch = errors.New("no match")
-
-func (s *Scanner) UnexpectedError(tok rune, text string) (err error) {
-	return fmt.Errorf("%s: expected %s found `%s'", s.Pos(), tokString(tok), text)
-}
-
-func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
-	fs := strings.Fields(template)
-	ai := 0
-	v := s.Save()
-	defer func() {
-		if err != nil {
-			s.Restore(v)
-		} else {
-			s.Advance()
-		}
-	}()
-	for _, f := range fs {
-		if f == "%" {
-			a := args[ai]
-			ai++
-			if p, ok := a.(Parser); ok {
-				s.peekWhite()
-				err = p.Parse(s)
-				if err != nil {
-					return
-				}
-			} else {
-				err = fmt.Errorf("%s: %T does not implement Parser interface", s.Pos(), a)
-				return
-			}
-		} else {
-			tok, text := s.nextNonWhite()
-			switch {
-			case strings.IndexByte(f, '%') >= 0:
-				switch tok {
-				case Ident, Int, Float, String:
-					break
-				default:
-					err = s.UnexpectedError(Ident, text)
-					return
-				}
-				_, err = fmt.Sscanf(text, f, args[ai:ai+1]...)
-				if err != nil {
-					err = fmt.Errorf("%s: `%s' %s", s.Pos(), text, err)
-					return
-				}
-				ai++
-
-			default:
-				// Match exact text or for X*Y match up to X and only match Y if present.
-				if ok := f == text; !ok {
-					if star := strings.Index(f, "*"); star > 0 {
-						x := strings.Index(text, f[:star])
-						if x == 0 {
-							x = strings.Index(f[star+1:], text[star:])
-						}
-						ok = x == 0
-					}
-					if !ok {
-						err = NoMatch
-						return
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
-type Parser interface {
-	Parse(input *Scanner) error
-}
