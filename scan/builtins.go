@@ -241,19 +241,28 @@ func (s *Scanner) ParseElts(p EltParser, c *ParseEltsConfig) (err error) {
 	return
 }
 
-type StringMap map[string]int
+type StringMap map[string]uint
+
+func (sm *StringMap) Set(v string, i uint) {
+	m := *sm
+	if m == nil {
+		m = make(map[string]uint)
+	}
+	m[v] = i
+	*sm = m
+}
 
 func NewStringMap(a []string) (m StringMap) {
-	m = make(map[string]int)
+	m = make(map[string]uint)
 	for i := range a {
 		if len(a[i]) > 0 {
-			m[a[i]] = i
+			m[a[i]] = uint(i)
 		}
 	}
 	return m
 }
 
-func (m StringMap) Parse(s *Scanner) (v int, err error) {
+func (m StringMap) Parse(s *Scanner) (v uint, err error) {
 	_, text := s.Next()
 	var ok bool
 	if v, ok = m[text]; !ok {
