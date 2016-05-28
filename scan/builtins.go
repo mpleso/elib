@@ -243,6 +243,16 @@ func (s *Scanner) ParseElts(p EltParser, c *ParseEltsConfig) (err error) {
 
 type StringMap map[string]int
 
+func NewStringMap(a []string) (m StringMap) {
+	m = make(map[string]int)
+	for i := range a {
+		if len(a[i]) > 0 {
+			m[a[i]] = i
+		}
+	}
+	return m
+}
+
 func (m StringMap) Parse(s *Scanner) (v int, err error) {
 	_, text := s.Next()
 	var ok bool
