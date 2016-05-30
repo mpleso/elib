@@ -2,6 +2,7 @@ package loop
 
 import (
 	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/elib/dep"
 	"github.com/platinasystems/elib/event"
 
 	"fmt"
@@ -98,6 +99,7 @@ type Loop struct {
 	secsPerCycle           float64
 	timeDurationPerCycle   float64
 	wg                     sync.WaitGroup
+	cli                    LoopCli
 }
 
 func (l *Loop) Seconds(t cpu.Time) float64 { return float64(t) * l.secsPerCycle }
@@ -306,7 +308,28 @@ func (l *Loop) timerInit() {
 	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
 }
 
-func (l *Loop) callInit(n Initer, isCall bool) {
+type initHook func(l *Loop)
+
+//go:generate gentemplate -id initHook -d Package=loop -d DepsType=initHookVec -d Type=initHook -d Data=hooks github.com/platinasystems/elib/dep/dep.tmpl
+
+var initHooks, exitHooks initHookVec
+
+func AddInit(f initHook, deps ...*dep.Dep) { initHooks.Add(f, deps...) }
+func AddExit(f initHook, deps ...*dep.Dep) { exitHooks.Add(f, deps...) }
+
+func (l *Loop) callInitHooks() {
+	for i := range initHooks.hooks {
+		initHooks.Get(i)(l)
+	}
+}
+
+func (l *Loop) callExitHooks() {
+	for i := range exitHooks.hooks {
+		exitHooks.Get(i)(l)
+	}
+}
+
+func (l *Loop) callInitNode(n Initer, isCall bool) {
 	c := n.GetNode()
 	wg := &l.wg
 	if isCall {
@@ -320,17 +343,18 @@ func (l *Loop) callInit(n Initer, isCall bool) {
 		}()
 	})
 }
-func (l *Loop) CallInit(n Initer)  { l.callInit(n, true) }
-func (l *Loop) startInit(n Initer) { l.callInit(n, false) }
+func (l *Loop) CallInitNode(n Initer)  { l.callInitNode(n, true) }
+func (l *Loop) startInitNode(n Initer) { l.callInitNode(n, false) }
 
-func (l *Loop) doInit() {
+func (l *Loop) doInitNodes() {
 	for _, i := range l.loopIniters {
-		l.startInit(i)
+		l.startInitNode(i)
 	}
 	l.wg.Wait()
 }
 
 func (l *Loop) doExit() {
+	l.callExitHooks()
 	for i := range l.loopExiters {
 		l.loopExiters[i].LoopExit(l)
 	}
@@ -339,10 +363,11 @@ func (l *Loop) doExit() {
 func (l *Loop) Run() {
 	l.timerInit()
 	l.startTime = cpu.TimeNow()
+	l.callInitHooks()
 	l.eventInit()
 	l.startPollers()
 	l.registrationsNeedStart = true
-	l.doInit()
+	l.doInitNodes()
 	for !l.doEvents() {
 		l.doPollers()
 	}
@@ -402,7 +427,7 @@ func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 	if p, ok := n.(Initer); ok {
 		l.loopIniters = append(l.loopIniters, p)
 		if start {
-			l.startInit(p)
+			l.startInitNode(p)
 		}
 		nOK++
 	}
@@ -418,13 +443,6 @@ func (l *Loop) Register(n Noder, format string, args ...interface{}) {
 func (l *Loop) RegisterEventPoller(p EventPoller) {
 	l.eventPollers = append(l.eventPollers, p)
 }
-
-var defaultLoop = &Loop{}
-
-func AddEvent(e event.Actor, h EventHandler)               { defaultLoop.AddEvent(e, h) }
-func Register(n Noder, format string, args ...interface{}) { defaultLoop.Register(n, format, args...) }
-func RegisterEventPoller(p EventPoller)                    { defaultLoop.RegisterEventPoller(p) }
-func Run()                                                 { defaultLoop.Run() }
 
 type quitEvent struct{}
 

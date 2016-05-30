@@ -76,6 +76,7 @@ func (s *Scanner) Init(src io.Reader) *Scanner {
 	s.scanner.Init(src)
 	// Pass comments.
 	s.scanner.Mode &^= scanner.SkipComments
+	// 1.2 might be start of IP address: so disable float scanning.
 	s.scanner.Mode &^= scanner.ScanFloats
 	s.scanner.Mode |= scanner.ScanInts
 	// We'll handle white space in next() below.

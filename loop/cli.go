@@ -14,29 +14,34 @@ type LoopCli struct {
 	Node
 }
 
-var Cli = &LoopCli{}
+func (l *Loop) CliAdd(c *cli.Command) { l.cli.AddCommand(c) }
 
 func init() {
-	RegisterEventPoller(iomux.Default)
-	Register(Cli, "loop-cli")
+	AddInit(func(l *Loop) {
+		l.RegisterEventPoller(iomux.Default)
+		l.Register(&l.cli, "loop-cli")
+	})
 }
 
-type CliFile struct{ *cli.File }
+type CliFile struct {
+	loop *Loop
+	*cli.File
+}
 
-func rxReady(f *cli.File) {
-	AddEvent(&CliFile{File: f}, Cli)
+func (l *Loop) rxReady(f *cli.File) {
+	l.AddEvent(&CliFile{loop: l, File: f}, &l.cli)
 }
 
 func (c *CliFile) EventAction() {
 	if err := c.RxReady(); err == cli.ErrQuit {
-		AddEvent(ErrQuit, nil)
+		c.loop.AddEvent(ErrQuit, nil)
 	}
 }
 
 func (c *LoopCli) EventHandler() {}
 
 func (c *LoopCli) LoopInit(l *Loop) {
-	c.Main.RxReady = rxReady
+	c.Main.RxReady = l.rxReady
 	c.Main.Prompt = "cli# "
 	c.Main.AddStdin()
 	c.Main.Start()
@@ -46,12 +51,8 @@ func (c *LoopCli) LoopExit(l *Loop) {
 	c.Main.End()
 }
 
-func CliAdd(c *cli.Command) { Cli.Main.AddCommand(c) }
-
-func Logf(format string, args ...interface{})             { fmt.Fprintf(&Cli.Main, format, args...) }
-func Fatalf(format string, args ...interface{})           { panic(fmt.Errorf(format, args...)) }
-func (l *Loop) Logf(format string, args ...interface{})   { Logf(format, args...) }
-func (l *Loop) Fatalf(format string, args ...interface{}) { Fatalf(format, args...) }
+func (l *Loop) Logf(format string, args ...interface{})   { fmt.Fprintf(&l.cli.Main, format, args...) }
+func (l *Loop) Fatalf(format string, args ...interface{}) { panic(fmt.Errorf(format, args...)) }
 
 type rtNode struct {
 	Name    string  `format:"%-30s"`
@@ -65,7 +66,7 @@ func (ns rtNodes) Less(i, j int) bool { return ns[i].Name < ns[j].Name }
 func (ns rtNodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
 func (ns rtNodes) Len() int           { return len(ns) }
 
-func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
+func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
 	ns := rtNodes(make([]rtNode, len(l.dataNodes)))
 	for i := range l.dataNodes {
 		n := l.dataNodes[i].GetNode()
@@ -100,26 +101,30 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 
 	sort.Sort(ns)
 	elib.TabulateWrite(w, ns)
+	return
 }
 
-func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) {
+func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
 	for _, a := range l.activePollers {
 		a.statsLastClear = a.pollerStats
 		for j := range a.activeNodes {
 			a.activeNodes[j].statsLastClear = a.activeNodes[j].nodeStats
 		}
 	}
+	return
 }
 
 func init() {
-	CliAdd(&cli.Command{
-		Name:      "show runtime",
-		ShortHelp: "show main loop runtime statistics",
-		Action:    defaultLoop.showRuntimeStats,
-	})
-	CliAdd(&cli.Command{
-		Name:      "clear runtime",
-		ShortHelp: "clear main loop runtime statistics",
-		Action:    defaultLoop.clearRuntimeStats,
+	AddInit(func(l *Loop) {
+		l.cli.AddCommand(&cli.Command{
+			Name:      "show runtime",
+			ShortHelp: "show main loop runtime statistics",
+			Action:    l.showRuntimeStats,
+		})
+		l.cli.AddCommand(&cli.Command{
+			Name:      "clear runtime",
+			ShortHelp: "clear main loop runtime statistics",
+			Action:    l.clearRuntimeStats,
+		})
 	})
 }

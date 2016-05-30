@@ -185,7 +185,6 @@ func (l *Loop) AddNext(thisNoder Noder, nextNoder inNoder) (nextIndex uint) {
 	}
 	return
 }
-func AddNext(r Noder, n inNoder) uint { return defaultLoop.AddNext(r, n) }
 
 func (ap *activePoller) init(l *Loop, api uint) {
 	nNodes := uint(len(l.dataNodes))

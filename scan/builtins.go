@@ -1,8 +1,9 @@
 package scan
 
 import (
-	"fmt"
 	"github.com/platinasystems/elib"
+
+	"fmt"
 	"strconv"
 )
 
@@ -31,6 +32,22 @@ func (b *Enable) Parse(s *Scanner) (err error) {
 	case "enable", "yes", "1":
 		*b = true
 	case "disable", "no", "0":
+		*b = false
+	default:
+		err = NoMatch
+	}
+	return
+}
+
+// Boolean parser accepting up/down yes/no
+type UpDown bool
+
+func (b *UpDown) Parse(s *Scanner) (err error) {
+	_, text := s.Scan()
+	switch text {
+	case "up", "yes", "1":
+		*b = true
+	case "down", "no", "0":
 		*b = false
 	default:
 		err = NoMatch
@@ -120,6 +137,42 @@ func (x *Base16Uint64) Parse(s *Scanner) error {
 		*x = Base16Uint64(v)
 	}
 	return err
+}
+
+type Float64 float64
+
+func (x *Float64) Parse(s *Scanner) (err error) {
+	tok, text := s.Scan()
+	if tok != Int {
+		err = s.UnexpectedError(Int, tok, text)
+		return
+	}
+	if s.AdvanceIf('.') {
+		tok, subtext := s.Scan()
+		if tok != Int {
+			err = s.UnexpectedError(Int, tok, text)
+			return
+		}
+		text += "." + subtext
+	}
+	if tok = s.Peek(); tok == 'e' || tok == 'E' {
+		// Skip past - or +
+		if tok = s.Peek(); tok == '-' || tok == '+' {
+			s.Next()
+		}
+		tok, subtext := s.Scan()
+		if tok != Int {
+			err = s.UnexpectedError(Int, tok, text)
+			return
+		}
+		text += "e" + subtext
+	}
+
+	var v float64
+	v, err = strconv.ParseFloat(text, 64)
+	*x = Float64(v)
+
+	return
 }
 
 type Bitmap elib.Bitmap

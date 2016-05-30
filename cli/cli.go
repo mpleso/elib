@@ -48,7 +48,7 @@ type LoopStarter interface {
 	CliLoopStart(m *Main)
 }
 
-type Action func(c Commander, w Writer, s *Scanner)
+type Action func(c Commander, w Writer, s *Scanner) (err error)
 
 type Command struct {
 	// Command name separated by space; alias by commas.
@@ -60,7 +60,7 @@ type Command struct {
 func (c *Command) CliName() string                            { return c.Name }
 func (c *Command) CliShortHelp() string                       { return c.ShortHelp }
 func (c *Command) CliHelp() string                            { return c.Help }
-func (c *Command) CliAction(w Writer, s *Scanner) (err error) { c.Action(c, w, s); return }
+func (c *Command) CliAction(w Writer, s *Scanner) (err error) { return c.Action(c, w, s) }
 
 type command struct {
 	name  string

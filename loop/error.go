@@ -48,7 +48,11 @@ func (n *errorNode) MakeLoopIn() LooperIn { return &RefIn{} }
 
 var ErrorNode = &errorNode{}
 
-func init() { Register(ErrorNode, "error") }
+func init() {
+	AddInit(func(l *Loop) {
+		l.Register(ErrorNode, "error")
+	})
+}
 
 func (en *errorNode) LoopOutput(l *Loop, in LooperIn) {
 	ri := in.(*RefIn)
@@ -110,7 +114,7 @@ func (ns errNodes) Less(i, j int) bool {
 func (ns errNodes) Swap(i, j int) { ns[i], ns[j] = ns[j], ns[i] }
 func (ns errNodes) Len() int      { return len(ns) }
 
-func (l *Loop) showErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) {
+func (l *Loop) showErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
 	en := ErrorNode
 	ns := []errNode{}
 	for i := range en.errs {
@@ -141,25 +145,29 @@ func (l *Loop) showErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) {
 	} else {
 		fmt.Fprintln(w, "No errors since last clear.")
 	}
+	return
 }
 
-func (l *Loop) clearErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) {
+func (l *Loop) clearErrors(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
 	for _, t := range ErrorNode.threads {
 		if t != nil {
 			copy(t.countsLastClear, t.counts)
 		}
 	}
+	return
 }
 
 func init() {
-	CliAdd(&cli.Command{
-		Name:      "show errors",
-		ShortHelp: "show error counters",
-		Action:    defaultLoop.showErrors,
-	})
-	CliAdd(&cli.Command{
-		Name:      "clear errors",
-		ShortHelp: "clear error counters",
-		Action:    defaultLoop.clearErrors,
+	AddInit(func(l *Loop) {
+		l.cli.AddCommand(&cli.Command{
+			Name:      "show errors",
+			ShortHelp: "show error counters",
+			Action:    l.showErrors,
+		})
+		l.cli.AddCommand(&cli.Command{
+			Name:      "clear errors",
+			ShortHelp: "clear error counters",
+			Action:    l.clearErrors,
+		})
 	})
 }
