@@ -21,7 +21,7 @@ func (p *errorThreadVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *errorThreadVec) Validate(i uint) {
+func (p *errorThreadVec) Validate(i uint) **errorThread {
 	c := elib.Index(cap(*p))
 	l := elib.Index(i) + 1
 	if l > c {
@@ -33,6 +33,7 @@ func (p *errorThreadVec) Validate(i uint) {
 	if l > elib.Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p errorThreadVec) Len() uint { return uint(len(p)) }

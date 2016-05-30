@@ -21,7 +21,7 @@ func (p *RefVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *RefVec) Validate(i uint) {
+func (p *RefVec) Validate(i uint) *Ref {
 	c := elib.Index(cap(*p))
 	l := elib.Index(i) + 1
 	if l > c {
@@ -33,6 +33,7 @@ func (p *RefVec) Validate(i uint) {
 	if l > elib.Index(len(*p)) {
 		*p = (*p)[:l]
 	}
+	return &(*p)[i]
 }
 
 func (p RefVec) Len() uint { return uint(len(p)) }
