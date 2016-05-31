@@ -138,10 +138,19 @@ func (s *Scanner) Peek() (tok rune) {
 	return
 }
 
-// Advance to next token if current token matches.
-func (s *Scanner) AdvanceIf(tok rune) (ok bool) {
-	if ok = s.Peek() == tok; ok {
-		s.scanner.Next()
+func (s *Scanner) Next() (tok rune) {
+	tok = s.Peek()
+	s.scanner.Next()
+	return
+}
+
+// Advance to next token if current token matches given runes.
+func (s *Scanner) AdvanceIf(wants ...rune) (ok bool) {
+	for _, want := range wants {
+		if ok = s.Peek() == want; ok {
+			s.scanner.Next()
+			return
+		}
 	}
 	return
 }
@@ -192,7 +201,7 @@ func (s *Scanner) Scan() (tok rune, text string) {
 }
 
 // Like Scan but skips white space.
-func (s *Scanner) Next() (tok rune, text string) {
+func (s *Scanner) ScanSkipWhite() (tok rune, text string) {
 	tok, text = s.Scan()
 	for tok == Whitespace {
 		tok, text = s.Scan()

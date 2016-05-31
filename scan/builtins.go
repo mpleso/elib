@@ -156,16 +156,20 @@ func (x *Float64) Parse(s *Scanner) (err error) {
 		text += "." + subtext
 	}
 	if tok = s.Peek(); tok == 'e' || tok == 'E' {
+		s.Next()
+		text += string(tok)
+
 		// Skip past - or +
 		if tok = s.Peek(); tok == '-' || tok == '+' {
+			text += string(tok)
 			s.Next()
 		}
 		tok, subtext := s.Scan()
+		text += subtext
 		if tok != Int {
 			err = s.UnexpectedError(Int, tok, text)
 			return
 		}
-		text += "e" + subtext
 	}
 
 	var v float64
@@ -250,7 +254,7 @@ type ParseEltsConfig struct {
 
 func (s *Scanner) ParseElts(p EltParser, c *ParseEltsConfig) (err error) {
 	save := s.Save()
-	defer s.ErrRestore(err, save)
+	defer func() { s.ErrRestore(err, save) }()
 
 	if len(c.Start) > 0 {
 		if err = s.Expect(c.Start, c.SkipWhite); err != nil {
@@ -316,7 +320,7 @@ func NewStringMap(a []string) (m StringMap) {
 }
 
 func (m StringMap) Parse(s *Scanner) (v uint, err error) {
-	_, text := s.Next()
+	_, text := s.ScanSkipWhite()
 	var ok bool
 	if v, ok = m[text]; !ok {
 		err = fmt.Errorf("%s", text)

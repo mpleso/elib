@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-var NoMatch = errors.New("no match")
+var (
+	NoMatch    = errors.New("no match")
+	ParseError = errors.New("parse error")
+)
 
 func tokTextString(tok rune, text string) (v string) {
 	v = tokString(tok)
@@ -37,7 +40,7 @@ func (s *Scanner) ErrRestore(err error, save int) {
 
 func (s *Scanner) ParseFormat(format string, args ...Parser) (err error) {
 	v := s.Save()
-	defer s.ErrRestore(err, v)
+	defer func() { s.ErrRestore(err, v) }()
 	i := 0
 	for _, f := range format {
 		switch f {
@@ -62,7 +65,7 @@ func (s *Scanner) Parse(template string, args ...interface{}) (err error) {
 	fs := strings.Fields(template)
 	ai := 0
 	v := s.Save()
-	defer s.ErrRestore(err, v)
+	defer func() { s.ErrRestore(err, v) }()
 	for _, f := range fs {
 		if f == "%" {
 			a := args[ai]

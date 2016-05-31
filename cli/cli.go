@@ -184,7 +184,7 @@ func (m *Main) lookup(s *Scanner) (Commander, error) {
 		text string
 	)
 	for tok != scan.EOF {
-		tok, text = s.Next()
+		tok, text = s.ScanSkipWhite()
 		switch tok {
 		case scan.Ident, '?':
 			break
