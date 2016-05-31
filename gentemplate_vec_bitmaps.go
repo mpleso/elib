@@ -17,19 +17,26 @@ func (p *BitmapsVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *BitmapsVec) Validate(i uint) *[]Bitmap {
+func (p *BitmapsVec) validate(i uint, zero *[]Bitmap) *[]Bitmap {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([][]Bitmap, l, c)
+		cNext := NextResizeCap(l)
+		q := make([][]Bitmap, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *BitmapsVec) Validate(i uint) *[]Bitmap                    { return p.validate(i, (*[]Bitmap)(nil)) }
+func (p *BitmapsVec) ValidateInit(i uint, zero []Bitmap) *[]Bitmap { return p.validate(i, &zero) }
 
 func (p BitmapsVec) Len() uint { return uint(len(p)) }

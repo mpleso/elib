@@ -17,19 +17,26 @@ func (p *Int16Vec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *Int16Vec) Validate(i uint) *int16 {
+func (p *Int16Vec) validate(i uint, zero *int16) *int16 {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]int16, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]int16, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *Int16Vec) Validate(i uint) *int16                 { return p.validate(i, (*int16)(nil)) }
+func (p *Int16Vec) ValidateInit(i uint, zero int16) *int16 { return p.validate(i, &zero) }
 
 func (p Int16Vec) Len() uint { return uint(len(p)) }

@@ -17,19 +17,26 @@ func (p *StringVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *StringVec) Validate(i uint) *string {
+func (p *StringVec) validate(i uint, zero *string) *string {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]string, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]string, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *StringVec) Validate(i uint) *string                  { return p.validate(i, (*string)(nil)) }
+func (p *StringVec) ValidateInit(i uint, zero string) *string { return p.validate(i, &zero) }
 
 func (p StringVec) Len() uint { return uint(len(p)) }

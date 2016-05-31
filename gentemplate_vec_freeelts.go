@@ -17,19 +17,26 @@ func (p *freeEltsVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *freeEltsVec) Validate(i uint) *freeEltVec {
+func (p *freeEltsVec) validate(i uint, zero *freeEltVec) *freeEltVec {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]freeEltVec, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]freeEltVec, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *freeEltsVec) Validate(i uint) *freeEltVec                      { return p.validate(i, (*freeEltVec)(nil)) }
+func (p *freeEltsVec) ValidateInit(i uint, zero freeEltVec) *freeEltVec { return p.validate(i, &zero) }
 
 func (p freeEltsVec) Len() uint { return uint(len(p)) }

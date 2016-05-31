@@ -17,19 +17,26 @@ func (p *Uint64Vec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *Uint64Vec) Validate(i uint) *uint64 {
+func (p *Uint64Vec) validate(i uint, zero *uint64) *uint64 {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]uint64, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]uint64, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *Uint64Vec) Validate(i uint) *uint64                  { return p.validate(i, (*uint64)(nil)) }
+func (p *Uint64Vec) ValidateInit(i uint, zero uint64) *uint64 { return p.validate(i, &zero) }
 
 func (p Uint64Vec) Len() uint { return uint(len(p)) }

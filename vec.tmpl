@@ -28,19 +28,26 @@ func (p * {{.VecType}}) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p * {{.VecType}}) Validate(i uint) *{{.Type}} {
+func (p * {{.VecType}}) validate(i uint, zero *{{.Type}}) *{{.Type}} {
 	c := {{template "elib" .Package}}Index(cap(*p))
 	l := {{template "elib" .Package}}Index(i) + 1
 	if l > c {
-		c = {{template "elib" .Package}}NextResizeCap(l)
-		q := make([]{{.Type}}, l, c)
+		cNext := {{template "elib" .Package}}NextResizeCap(l)
+		q := make([]{{.Type}}, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > {{template "elib" .Package}}Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p * {{.VecType}}) Validate(i uint) *{{.Type}} { return p.validate(i, (*{{.Type}})(nil)) }
+func (p * {{.VecType}}) ValidateInit(i uint, zero {{.Type}}) *{{.Type}} { return p.validate(i, &zero) }
 
 func (p {{.VecType}}) Len() uint { return uint(len(p)) }

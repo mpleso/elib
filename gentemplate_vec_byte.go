@@ -17,19 +17,26 @@ func (p *ByteVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *ByteVec) Validate(i uint) *byte {
+func (p *ByteVec) validate(i uint, zero *byte) *byte {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]byte, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]byte, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *ByteVec) Validate(i uint) *byte                { return p.validate(i, (*byte)(nil)) }
+func (p *ByteVec) ValidateInit(i uint, zero byte) *byte { return p.validate(i, &zero) }
 
 func (p ByteVec) Len() uint { return uint(len(p)) }

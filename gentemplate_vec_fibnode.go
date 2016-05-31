@@ -17,19 +17,26 @@ func (p *fibNodeVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *fibNodeVec) Validate(i uint) *fibNode {
+func (p *fibNodeVec) validate(i uint, zero *fibNode) *fibNode {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]fibNode, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]fibNode, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *fibNodeVec) Validate(i uint) *fibNode                   { return p.validate(i, (*fibNode)(nil)) }
+func (p *fibNodeVec) ValidateInit(i uint, zero fibNode) *fibNode { return p.validate(i, &zero) }
 
 func (p fibNodeVec) Len() uint { return uint(len(p)) }

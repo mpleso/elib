@@ -17,19 +17,26 @@ func (p *Int32Vec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *Int32Vec) Validate(i uint) *int32 {
+func (p *Int32Vec) validate(i uint, zero *int32) *int32 {
 	c := Index(cap(*p))
 	l := Index(i) + 1
 	if l > c {
-		c = NextResizeCap(l)
-		q := make([]int32, l, c)
+		cNext := NextResizeCap(l)
+		q := make([]int32, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *Int32Vec) Validate(i uint) *int32                 { return p.validate(i, (*int32)(nil)) }
+func (p *Int32Vec) ValidateInit(i uint, zero int32) *int32 { return p.validate(i, &zero) }
 
 func (p Int32Vec) Len() uint { return uint(len(p)) }
