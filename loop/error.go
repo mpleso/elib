@@ -50,7 +50,7 @@ var ErrorNode = &errorNode{}
 
 func init() {
 	AddInit(func(l *Loop) {
-		l.Register(ErrorNode, "error")
+		l.RegisterNode(ErrorNode, "error")
 	})
 }
 

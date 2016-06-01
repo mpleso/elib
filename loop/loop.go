@@ -384,7 +384,7 @@ func (l *Loop) addDataNode(r Noder) {
 	l.dataNodeByName[n.name] = r
 }
 
-func (l *Loop) Register(n Noder, format string, args ...interface{}) {
+func (l *Loop) RegisterNode(n Noder, format string, args ...interface{}) {
 	x := n.GetNode()
 	x.name = fmt.Sprintf(format, args...)
 	x.loop = l

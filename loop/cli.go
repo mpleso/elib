@@ -19,7 +19,7 @@ func (l *Loop) CliAdd(c *cli.Command) { l.cli.AddCommand(c) }
 func init() {
 	AddInit(func(l *Loop) {
 		l.RegisterEventPoller(iomux.Default)
-		l.Register(&l.cli, "loop-cli")
+		l.RegisterNode(&l.cli, "loop-cli")
 	})
 }
 
