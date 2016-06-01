@@ -113,6 +113,7 @@ func (s *Scanner) Advance() {
 	}
 }
 
+// Returns but does not advance past next non-white token.
 func (s *Scanner) peekWhite() (tok rune, nWhite uint) {
 	for {
 		tok = s.scanner.Peek()
@@ -125,8 +126,22 @@ func (s *Scanner) peekWhite() (tok rune, nWhite uint) {
 	return
 }
 
+func (s *Scanner) getSaved(advance bool) (t *savedToken) {
+	if s.saveIndex < len(s.savedTokens) {
+		t = &s.savedTokens[s.saveIndex]
+		if advance {
+			s.saveIndex++
+		}
+	}
+	return
+}
+
 func (s *Scanner) Peek() (tok rune) {
 	var nWhite uint
+	if t := s.getSaved(false); t != nil {
+		tok = t.tok
+		return
+	}
 	if tok, nWhite = s.peekWhite(); nWhite > 0 {
 		tok = Whitespace
 	} else {
@@ -139,19 +154,36 @@ func (s *Scanner) Peek() (tok rune) {
 }
 
 func (s *Scanner) Next() (tok rune) {
-	tok = s.Peek()
-	s.scanner.Next()
+	if t := s.getSaved(true); t != nil {
+		tok = t.tok
+		return
+	}
+	tok, _ = s.Scan()
+	return
+}
+
+func (s *Scanner) AdvanceIf(want rune) (ok bool) {
+	tok := s.Peek()
+	if ok = tok == want; ok {
+		s.Scan()
+	}
 	return
 }
 
 // Advance to next token if current token matches given runes.
-func (s *Scanner) AdvanceIf(wants ...rune) (ok bool) {
-	for _, want := range wants {
-		if ok = s.Peek() == want; ok {
-			s.scanner.Next()
-			return
+func (s *Scanner) AdvanceIfOneof(wants ...rune) (want rune, ok bool) {
+	tok := s.Peek()
+	for _, want = range wants {
+		if ok = tok == want; ok {
+			s.Scan()
+			break
 		}
 	}
+	return
+}
+
+func (s *Scanner) AdvanceIfMulti(wants ...rune) (ok bool) {
+	_, ok = s.AdvanceIfOneof(wants...)
 	return
 }
 
@@ -163,9 +195,19 @@ func (s *Scanner) nextNonWhite() (tok rune, text string) {
 	return
 }
 
-func (s *Scanner) SkipWhite() { s.peekWhite() }
+func (s *Scanner) SkipWhite() {
+	for {
+		tok := s.Peek()
+		if tok != Whitespace {
+			break
+		}
+		s.Next()
+	}
+}
 
-func (s *Scanner) next() (tok rune, text string) {
+// Like scanner.Scan() but handles white space.
+// (since we've disabled text/scanner white space handling).
+func (s *Scanner) scan() (tok rune, text string) {
 	var nWhite uint
 	if tok, nWhite = s.peekWhite(); nWhite > 0 {
 		tok = Whitespace
@@ -186,7 +228,7 @@ func (s *Scanner) Scan() (tok rune, text string) {
 		tok, text = t.tok, string(s.buf[t.start:t.end])
 	} else {
 		pos := s.scanner.Pos()
-		tok, text = s.next()
+		tok, text = s.scan()
 		if len(s.saves) > 0 {
 			start := uint(len(s.buf))
 			l := uint(len(text))
