@@ -17,17 +17,25 @@ const (
 	Cloned
 )
 
-type Ref struct {
+type RefHeader struct {
 	// 28 bits of offset; 4 bits of flags.
 	offsetAndFlags uint32
 
 	dataOffset uint16
 	dataLen    uint16
+}
 
-	Err ErrorRef
+const (
+	RefBytes       = 16
+	RefHeaderBytes = 1*4 + 2*2
+	RefOpaqueBytes = RefBytes - RefHeaderBytes
+)
 
-	// User
-	opaque [4]byte
+type Ref struct {
+	RefHeader
+
+	// User opaque area.
+	opaque [RefOpaqueBytes]byte
 }
 
 func (r *Ref) offset() uint32         { return r.offsetAndFlags &^ 0xf }
@@ -46,15 +54,15 @@ func (r *Ref) DataSlice() (b []byte) {
 	return
 }
 
-func (r *Ref) DataLen() uint { return uint(r.dataLen) }
-func (r *Ref) SetLen(l uint) { r.dataLen = uint16(l) }
-func (r *Ref) Advance(i int) (oldDataOffset int) {
+func (r *RefHeader) DataLen() uint { return uint(r.dataLen) }
+func (r *RefHeader) SetLen(l uint) { r.dataLen = uint16(l) }
+func (r *RefHeader) Advance(i int) (oldDataOffset int) {
 	oldDataOffset = int(r.dataOffset)
 	r.dataOffset = uint16(oldDataOffset + i)
 	r.dataLen = uint16(int(r.dataLen) - i)
 	return
 }
-func (r *Ref) Restore(oldDataOffset int) {
+func (r *RefHeader) Restore(oldDataOffset int) {
 	r.dataOffset = uint16(oldDataOffset)
 	Δ := int(r.dataOffset) - oldDataOffset
 	r.dataLen = uint16(int(r.dataLen) - Δ)
@@ -124,7 +132,7 @@ func (p *BufferPool) bufferSize() uint {
 	return nLines * cpu.CacheLineBytes
 }
 
-var defaultRef = Ref{dataOffset: RewriteBytes}
+var defaultRef = Ref{RefHeader: RefHeader{dataOffset: RewriteBytes}}
 var defaultBuf = Buffer{}
 
 type BufferTemplate struct {
@@ -142,7 +150,7 @@ type BufferTemplate struct {
 
 var DefaultBufferTemplate = &BufferTemplate{
 	Size: 512,
-	Ref:  Ref{dataOffset: RewriteBytes},
+	Ref:  Ref{RefHeader: RefHeader{dataOffset: RewriteBytes}},
 }
 var DefaultBufferPool = NewBufferPool(DefaultBufferTemplate)
 
@@ -173,7 +181,17 @@ func (p *BufferPool) Del() {
 	p.Data = nil
 }
 
-func (p *BufferPool) AllocRefs(refs []Ref) {
+func (r *RefHeader) slice(n uint) (l []Ref) {
+	var h reflect.SliceHeader
+	h.Data = uintptr(unsafe.Pointer(r))
+	h.Len = int(n)
+	h.Cap = int(n)
+	l = *(*[]Ref)(unsafe.Pointer(&h))
+	return
+}
+
+func (p *BufferPool) AllocRefs(r *RefHeader, n uint) {
+	refs := r.slice(n)
 	var got, want uint
 	if got, want = uint(len(p.refs)), uint(len(refs)); got < want {
 		n := uint(elib.RoundPow2(elib.Word(want-got), 2*V))
@@ -205,8 +223,8 @@ func (p *BufferPool) AllocRefs(refs []Ref) {
 }
 
 // Return all buffers to pool and reset for next usage.
-func (p *BufferPool) FreeRefs(toFree []Ref) {
-	n := uint(len(toFree))
+func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
+	toFree := rh.slice(n)
 	l := uint(len(p.refs))
 	p.refs.Resize(uint(n))
 	r := p.refs[l:]
@@ -241,15 +259,3 @@ func (p *BufferPool) FreeRefs(toFree []Ref) {
 
 	p.InitRefs(p.refs[l:])
 }
-
-type RefIn struct {
-	In
-	pool *BufferPool
-	Refs [V]Ref
-}
-
-func (r *RefIn) AllocPoolRefs(pool *BufferPool) {
-	r.pool = pool
-	pool.AllocRefs(r.Refs[:])
-}
-func (r *RefIn) AllocRefs() { r.AllocPoolRefs(DefaultBufferPool) }

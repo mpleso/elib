@@ -29,11 +29,11 @@ type Node struct {
 	nodeIndexByNext      []uint
 }
 
-func (n *Node) GetNode() *Node   { return n }
-func (n *Node) Index() uint      { return n.index }
-func (n *Node) NodeName() string { return n.name }
-func (n *Node) ThreadId() uint   { return uint(n.activePollerIndex) }
-func nodeName(n Noder) string    { return n.GetNode().name }
+func (n *Node) GetNode() *Node { return n }
+func (n *Node) Index() uint    { return n.index }
+func (n *Node) Name() string   { return n.name }
+func (n *Node) ThreadId() uint { return uint(n.activePollerIndex) }
+func nodeName(n Noder) string  { return n.GetNode().name }
 
 func (l *Loop) countActive(enable bool) {
 	if enable {
@@ -103,6 +103,7 @@ type Loop struct {
 }
 
 func (l *Loop) Seconds(t cpu.Time) float64 { return float64(t) * l.secsPerCycle }
+func (l *Loop) DataNode(i uint) Noder      { return l.dataNodes[i] }
 
 type loopEvent struct {
 	actor event.Actor
