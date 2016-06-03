@@ -3,6 +3,7 @@ package loop
 import (
 	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cli"
+	"github.com/platinasystems/elib/elog"
 	"github.com/platinasystems/elib/iomux"
 
 	"fmt"
@@ -116,6 +117,17 @@ func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) 
 	return
 }
 
+func (l *Loop) showEventLog(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
+	v := elog.NewView()
+	v.Print(w)
+	return
+}
+
+func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
+	elog.Clear()
+	return
+}
+
 func init() {
 	AddInit(func(l *Loop) {
 		l.cli.AddCommand(&cli.Command{
@@ -127,6 +139,16 @@ func init() {
 			Name:      "clear runtime",
 			ShortHelp: "clear main loop runtime statistics",
 			Action:    l.clearRuntimeStats,
+		})
+		l.cli.AddCommand(&cli.Command{
+			Name:      "show event-log",
+			ShortHelp: "show events in event log",
+			Action:    l.showEventLog,
+		})
+		l.cli.AddCommand(&cli.Command{
+			Name:      "clear event-log",
+			ShortHelp: "clear events in event log",
+			Action:    l.clearEventLog,
 		})
 	})
 }

@@ -121,6 +121,13 @@ func (b *Buffer) Enabled() bool {
 	return b.index < b.disableIndex
 }
 
+func (b *Buffer) Clear() {
+	b.lockIndex(true)
+	b.index = lockBit
+	b.lockIndex(false)
+}
+func Clear() { DefaultBuffer.Clear() }
+
 // Disable logging after specified number of events have been logged.
 // This is used as a "debug trigger" when a certain target event has occurred.
 // Events will be logged both before and after the target event.
