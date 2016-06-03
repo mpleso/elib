@@ -451,7 +451,13 @@ func (e *genEvent) String() string      { return String(e.s[:]) }
 func (e *genEvent) Encode(b []byte) int { return copy(b, e.s[:]) }
 func (e *genEvent) Decode(b []byte) int { return copy(e.s[:], b) }
 
-func GenEvent(format string, args ...interface{}) {
+func GenEvent(s string) {
+	e := genEvent{}
+	copy(e.s[:], s)
+	e.Log()
+}
+
+func GenEventf(format string, args ...interface{}) {
 	e := genEvent{}
 	Printf(e.s[:], format, args...)
 	e.Log()
