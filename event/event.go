@@ -7,6 +7,7 @@ import (
 
 type Actor interface {
 	EventAction()
+	String() string
 }
 
 type TimedActor interface {

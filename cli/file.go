@@ -67,7 +67,7 @@ func (c *Main) AddFile(f iomux.FileReadWriteCloser) {
 }
 
 func (c *Main) AddStdin() {
-	c.AddFile(iomux.NewFileBuf(syscall.Stdin))
+	c.AddFile(iomux.NewFileBuf(syscall.Stdin, "stdin"))
 }
 
 func (f *File) isStdin() bool {

@@ -18,14 +18,20 @@ type FileReadWriteCloser interface {
 
 type FileBuf struct {
 	File
+	name               string
 	maxReadBytes       uint
 	txBufLock          sync.Mutex
 	txBuffer, rxBuffer elib.ByteVec
 }
 
-func NewFileBuf(fd int) *FileBuf {
-	return &FileBuf{File: File{Fd: fd}}
+func NewFileBuf(fd int, format string, args ...interface{}) *FileBuf {
+	return &FileBuf{
+		File: File{Fd: fd},
+		name: fmt.Sprintf(format, args...),
+	}
 }
+
+func (f *FileBuf) String() string { return f.name }
 
 func (s *FileBuf) Read(advance int) []byte {
 	if advance >= len(s.rxBuffer) {
