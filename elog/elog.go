@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -187,7 +190,6 @@ var DefaultBuffer = New(0)
 func Add(t *EventType) *Event { return DefaultBuffer.Add(t) }
 func Print(w io.Writer)       { DefaultBuffer.Print(w) }
 func Len() (n int)            { return DefaultBuffer.Len() }
-func Enabled() bool           { return DefaultBuffer.Enabled() }
 func Enable(v bool)           { DefaultBuffer.Enable(v) }
 
 func New(log2Len uint) (b *Buffer) {
@@ -375,7 +377,7 @@ type View struct {
 	shared
 }
 
-//go:generate gentemplate -d Package=elog -id Event -d Type=Event github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=elog -id Event -d VecType=EventVec -d Type=Event github.com/platinasystems/elib/vec.tmpl
 
 func (b *Buffer) NewView() (v *View) {
 	v = &View{}
@@ -427,6 +429,18 @@ func (t *EventType) TagIndex(s string) (i int) {
 	}
 	return
 }
+
+// Dump log on SIGUP.
+func (b *Buffer) PrintOnHangupSignal(w io.Writer) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+	for {
+		<-c
+		v := b.NewView()
+		v.Print(w)
+	}
+}
+func PrintOnHangupSignal(w io.Writer) { DefaultBuffer.PrintOnHangupSignal(w) }
 
 // Generic events
 type genEvent struct {

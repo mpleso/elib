@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"time"
 )
 
 // Event logging.
@@ -46,4 +47,10 @@ func main() {
 	}
 
 	v.Print(os.Stdout)
+
+	go elog.PrintOnHangupSignal(os.Stdout)
+
+	for {
+		time.Sleep(1 * time.Second)
+	}
 }

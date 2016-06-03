@@ -35,7 +35,9 @@ func decode_genEvent(b []byte, e *Event) int {
 	return x.Encode(e.Data[:])
 }
 
-func (x genEvent) Log() {
-	e := Add(genEventType)
+func (x genEvent) Log() { x.Logb(DefaultBuffer) }
+
+func (x genEvent) Logb(b *Buffer) {
+	e := b.Add(genEventType)
 	x.Encode(e.Data[:])
 }
