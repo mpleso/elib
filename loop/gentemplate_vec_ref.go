@@ -21,19 +21,26 @@ func (p *RefVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *RefVec) Validate(i uint) *Ref {
+func (p *RefVec) validate(i uint, zero *Ref) *Ref {
 	c := elib.Index(cap(*p))
 	l := elib.Index(i) + 1
 	if l > c {
-		c = elib.NextResizeCap(l)
-		q := make([]Ref, l, c)
+		cNext := elib.NextResizeCap(l)
+		q := make([]Ref, cNext, cNext)
 		copy(q, *p)
-		*p = q
+		if zero != nil {
+			for i := c; i < cNext; i++ {
+				q[i] = *zero
+			}
+		}
+		*p = q[:l]
 	}
 	if l > elib.Index(len(*p)) {
 		*p = (*p)[:l]
 	}
 	return &(*p)[i]
 }
+func (p *RefVec) Validate(i uint) *Ref               { return p.validate(i, (*Ref)(nil)) }
+func (p *RefVec) ValidateInit(i uint, zero Ref) *Ref { return p.validate(i, &zero) }
 
 func (p RefVec) Len() uint { return uint(len(p)) }

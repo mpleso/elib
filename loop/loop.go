@@ -3,9 +3,11 @@ package loop
 import (
 	"github.com/platinasystems/elib/cpu"
 	"github.com/platinasystems/elib/dep"
+	"github.com/platinasystems/elib/elog"
 	"github.com/platinasystems/elib/event"
 
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -136,6 +138,18 @@ func (e *loopEvent) EventAction() {
 	}
 }
 
+func (e *loopEvent) String() string { return "loop event" }
+
+type loopLogEvent struct {
+	s [elog.EventDataBytes]byte
+}
+
+func (e *loopLogEvent) String() string      { return fmt.Sprintf("loop event: %s", elog.String(e.s[:])) }
+func (e *loopLogEvent) Encode(b []byte) int { return copy(b, e.s[:]) }
+func (e *loopLogEvent) Decode(b []byte) int { return copy(e.s[:], b) }
+
+//go:generate gentemplate -d Package=loop -id loopLogEvent -d Type=loopLogEvent github.com/platinasystems/elib/elog/event.tmpl
+
 func (l *Loop) doEvent(e event.Actor) {
 	defer func() {
 		if err := recover(); err == ErrQuit {
@@ -145,6 +159,11 @@ func (l *Loop) doEvent(e event.Actor) {
 			l.Quit()
 		}
 	}()
+	if elog.Enabled() {
+		le := loopLogEvent{}
+		copy(le.s[:], e.String())
+		le.Log()
+	}
 	e.EventAction()
 }
 
@@ -362,6 +381,9 @@ func (l *Loop) doExit() {
 }
 
 func (l *Loop) Run() {
+	elog.Enable(true)
+	go elog.PrintOnHangupSignal(os.Stderr)
+
 	l.timerInit()
 	l.startTime = cpu.TimeNow()
 	l.callInitHooks()
@@ -452,4 +474,5 @@ var ErrQuit = &quitEvent{}
 func (e *quitEvent) Error() string      { return "quit" }
 func (e *loopEvent) isQuit() (yes bool) { _, yes = e.actor.(*quitEvent); return }
 func (q *quitEvent) EventAction()       {}
+func (q *quitEvent) String() string     { return "quit" }
 func (l *Loop) Quit()                   { l.AddEvent(&quitEvent{}, nil) }

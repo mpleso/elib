@@ -23,20 +23,22 @@ func init() {
 	})
 }
 
-type CliFile struct {
+type fileEvent struct {
 	loop *Loop
 	*cli.File
 }
 
 func (l *Loop) rxReady(f *cli.File) {
-	l.AddEvent(&CliFile{loop: l, File: f}, &l.cli)
+	l.AddEvent(&fileEvent{loop: l, File: f}, &l.cli)
 }
 
-func (c *CliFile) EventAction() {
+func (c *fileEvent) EventAction() {
 	if err := c.RxReady(); err == cli.ErrQuit {
 		c.loop.AddEvent(ErrQuit, nil)
 	}
 }
+
+func (c *fileEvent) String() string { return "rx-ready " + c.File.String() }
 
 func (c *LoopCli) EventHandler() {}
 
