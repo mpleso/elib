@@ -58,3 +58,11 @@ func (p *StringPool) Elts() uint {
 func (p *StringPool) Len() uint {
 	return uint(len(p.Strings))
 }
+
+func (p *StringPool) Foreach(f func(x string)) {
+	for i := range p.Strings {
+		if !p.Pool.IsFree(uint(i)) {
+			f(p.Strings[i])
+		}
+	}
+}

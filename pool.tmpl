@@ -69,3 +69,11 @@ func (p * {{.PoolType}}) Elts() uint {
 func (p * {{.PoolType}}) Len() uint {
 	return uint(len(p.{{.Data}}))
 }
+
+func (p * {{.PoolType}}) Foreach(f func(x {{.Type}})) {
+	for i := range p.{{.Data}} {
+		if !p.Pool.IsFree(uint(i)) {
+			f(p.{{.Data}}[i])
+		}
+	}
+}

@@ -58,3 +58,11 @@ func (p *BitmapPool) Elts() uint {
 func (p *BitmapPool) Len() uint {
 	return uint(len(p.bitmaps))
 }
+
+func (p *BitmapPool) Foreach(f func(x BitmapVec)) {
+	for i := range p.bitmaps {
+		if !p.Pool.IsFree(uint(i)) {
+			f(p.bitmaps[i])
+		}
+	}
+}
