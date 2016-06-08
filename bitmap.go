@@ -490,6 +490,8 @@ func (bm BitmapVec) Unset(x uint) (v bool) {
 }
 
 func (bm *BitmapVec) Alloc(nBits uint) {
-	i, _ := bitmapIndex(nBits - 1)
-	bm.Validate(i)
+	if nBits > 0 {
+		i, _ := bitmapIndex(nBits - 1)
+		bm.Validate(i)
+	}
 }
