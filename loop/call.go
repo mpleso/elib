@@ -8,30 +8,24 @@ import (
 	"reflect"
 )
 
-type nodeStats struct {
+type stats struct {
 	calls, vectors uint64
 	clocks         cpu.Time
 }
 
-type pollerStats struct {
-	nonIdleClocks cpu.Time
-	calls         uint64
-	vectors       uint64
+type nodeStats struct {
+	current, lastClear stats
 }
 
-func (s *pollerStats) add(a *activePoller) {
-	s.nonIdleClocks += a.nonIdleClocks - a.statsLastClear.nonIdleClocks
-	s.vectors += a.vectors - a.statsLastClear.vectors
-	s.calls += a.calls - a.statsLastClear.calls
+func (s *nodeStats) clear() { s.lastClear = s.current }
+
+func (s *stats) add(n *nodeStats) {
+	s.calls += n.current.calls - n.lastClear.calls
+	s.vectors += n.current.vectors - n.lastClear.vectors
+	s.clocks += n.current.clocks - n.lastClear.clocks
 }
 
-func (s *nodeStats) add(a *activeNode) {
-	s.calls += a.calls - a.statsLastClear.calls
-	s.vectors += a.vectors - a.statsLastClear.vectors
-	s.clocks += a.clocks - a.statsLastClear.clocks
-}
-
-func (s *nodeStats) clocksPerVector() (v float64) {
+func (s *stats) clocksPerVector() (v float64) {
 	if s.vectors != 0 {
 		v = float64(s.clocks) / float64(s.vectors)
 	}
@@ -40,17 +34,15 @@ func (s *nodeStats) clocksPerVector() (v float64) {
 
 type activeNode struct {
 	// Index in activePoller.activeNodes and also loop.dataNodes.
-	index       uint32
-	loopInMaker loopInMaker
-	inOutLooper inOutLooper
-	outLooper   outLooper
-	looperOut   LooperOut
-	out         *Out
-	outIns      []LooperIn
-	outSlice    *reflect.Value
-
-	nodeStats
-	statsLastClear nodeStats
+	index                   uint32
+	loopInMaker             loopInMaker
+	inOutLooper             inOutLooper
+	outLooper               outLooper
+	looperOut               LooperOut
+	out                     *Out
+	outIns                  []LooperIn
+	outSlice                *reflect.Value
+	inputStats, outputStats nodeStats
 }
 
 type activePoller struct {
@@ -59,8 +51,9 @@ type activePoller struct {
 	pollerNode  *Node
 	currentNode *activeNode
 	activeNodes []activeNode
-	pollerStats
-	statsLastClear pollerStats
+	pending     []pending
+
+	pollerStats nodeStats
 }
 
 var looperInType = reflect.TypeOf((*LooperIn)(nil)).Elem()
@@ -142,6 +135,8 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 	return
 }
 
+func ithLooperIn(as reflect.Value, i int) LooperIn { return as.Index(i).Addr().Interface().(LooperIn) }
+
 func (a *activeNode) addNext(i LooperIn) {
 	in := i.GetIn()
 	in.nextIndex = uint32(len(a.outIns))
@@ -152,8 +147,13 @@ func (a *activeNode) addNext(i LooperIn) {
 		ai := int(in.nextIndex)
 		vi := reflect.ValueOf(i).Elem().Convert(sliceType)
 		as = reflect.Append(as, vi)
-		oi = as.Index(ai).Addr().Interface().(LooperIn)
+		oi = ithLooperIn(as, ai)
 		(*a.outSlice).Set(as)
+
+		// Correct previous ins for when slice grows.
+		for j := 0; j < int(in.nextIndex); j++ {
+			a.outIns[j] = ithLooperIn(as, j)
+		}
 	}
 	a.outIns = append(a.outIns, oi)
 }
@@ -183,6 +183,21 @@ func (l *Loop) AddNext(thisNoder Noder, nextNoder inNoder) (nextIndex uint) {
 	for i := range l.activePollers {
 		l.activePollers[i].activeNodes[this.index].addNext(li)
 	}
+	return
+}
+
+func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (nextIndex uint, ok bool) {
+	var (
+		n  Noder
+		in inNoder
+	)
+	if n, ok = l.dataNodeByName[nextName]; !ok {
+		return
+	}
+	if in, ok = n.(inNoder); !ok {
+		return
+	}
+	nextIndex = l.AddNext(thisNoder, in)
 	return
 }
 
@@ -245,26 +260,25 @@ type Out struct {
 	Len       []Vi
 	nextNodes []uint32
 	isPending elib.BitmapVec
-	pending   []pending
 }
 
 func (f *Out) alloc(nNext uint) {
 	f.Len = make([]Vi, nNext)
-	f.pending = make([]pending, 0, nNext)
 	f.isPending.Alloc(nNext)
 	f.nextNodes = make([]uint32, nNext)
 }
 
 // Fetch out frame for current active node.
-func (i *In) currentOut(l *Loop) *Out { return l.activePollers[i.activeIndex].currentNode.out }
+func (i *In) currentThread(l *Loop) *activePoller { return l.activePollers[i.activeIndex] }
+func (i *In) currentOut(l *Loop) *Out             { return i.currentThread(l).currentNode.out }
 
 // Set vector length for given in.
 // As vector length becomes positive, add to pending vector.
 func (i *In) SetLen(l *Loop, nVec uint) {
-	xi, o := uint(i.nextIndex), i.currentOut(l)
+	xi, a, o := uint(i.nextIndex), i.currentThread(l), i.currentOut(l)
 	o.Len[xi] = Vi(nVec)
 	if isPending := nVec > 0; isPending && !o.isPending.Set(xi, isPending) {
-		o.pending = append(o.pending, pending{in: i, nextIndex: uint32(xi), nodeIndex: o.nextNodes[xi]})
+		a.pending = append(a.pending, pending{in: i, nextIndex: uint32(xi), nodeIndex: o.nextNodes[xi]})
 	}
 }
 
@@ -276,26 +290,27 @@ func (f *Out) nextVectors(xi uint) (nVec uint) {
 	return
 }
 
-func (f *Out) totalVectors() (nVec uint) {
-	for i := range f.pending {
-		p := &f.pending[i]
+func (f *Out) totalVectors(a *activePoller) (nVec uint) {
+	for i := range a.pending {
+		p := &a.pending[i]
 		nVec += f.nextVectors(uint(p.nextIndex))
 	}
 	return
 }
 
-func (n *activeNode) updateStats(nVec uint, tStart cpu.Time) (tNow cpu.Time) {
+func (n *nodeStats) update(nVec uint, tStart cpu.Time) (tNow cpu.Time) {
 	tNow = cpu.TimeNow()
-	n.calls++
-	n.vectors += uint64(nVec)
-	n.clocks += tNow - tStart
+	s := &n.current
+	s.calls++
+	s.vectors += uint64(nVec)
+	s.clocks += tNow - tStart
 	return
 }
 
 func (f *Out) call(l *Loop, a *activePoller) (nVec uint) {
 	prevNode := a.currentNode
-	nVec = f.totalVectors()
-	a.timeNow = prevNode.updateStats(nVec, a.timeNow)
+	nVec = f.totalVectors(a)
+	a.timeNow = prevNode.inputStats.update(nVec, a.timeNow)
 	if nVec == 0 {
 		return
 	}
@@ -303,10 +318,10 @@ func (f *Out) call(l *Loop, a *activePoller) (nVec uint) {
 	t0 := a.timeNow
 	for {
 		// Advance pending
-		if pendingIndex >= len(f.pending) {
+		if pendingIndex >= len(a.pending) {
 			break
 		}
-		p := &f.pending[pendingIndex]
+		p := &a.pending[pendingIndex]
 		pendingIndex++
 
 		// Fetch next node.
@@ -327,15 +342,15 @@ func (f *Out) call(l *Loop, a *activePoller) (nVec uint) {
 		// Call next node.
 		a.currentNode = next
 		nextIn := prevNode.outIns[xi]
-		if next.out != nil {
+		if next.inOutLooper != nil {
 			next.inOutLooper.LoopInputOutput(l, nextIn, next.looperOut)
 		} else {
 			next.outLooper.LoopOutput(l, nextIn)
 		}
 
-		t0 = next.updateStats(nextN, t0)
+		t0 = next.outputStats.update(nextN, t0)
 	}
-	f.pending = f.pending[:0]
+	a.pending = a.pending[:0]
 	a.timeNow = t0
 	return
 }

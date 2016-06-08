@@ -36,6 +36,8 @@ func (heap *Heap) SetMaxLen(l uint) {
 	heap.maxLen = Index(l)
 }
 
+func (heap *Heap) GetMaxLen() uint { return uint(heap.maxLen) }
+
 type freeElt Index
 
 //go:generate gentemplate -d Package=elib -id freeElt -d VecType=freeEltVec -d Type=freeElt vec.tmpl

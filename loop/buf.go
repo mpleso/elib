@@ -10,10 +10,10 @@ import (
 	"unsafe"
 )
 
-type flag uint32
+type BufferFlag uint32
 
 const (
-	NextValid flag = 1 << iota
+	NextValid BufferFlag = 1 << iota
 	Cloned
 )
 
@@ -38,14 +38,25 @@ type Ref struct {
 	opaque [RefOpaqueBytes]byte
 }
 
-func (r *Ref) offset() uint32         { return r.offsetAndFlags &^ 0xf }
-func (r *Ref) flags() flag            { return flag(r.offsetAndFlags & 0xf) }
-func (dst *Ref) copyOffset(src *Ref)  { dst.offsetAndFlags |= src.offset() }
-func (r *Ref) Buffer() unsafe.Pointer { return hw.DmaGetOffset(uint(r.offset())) }
-func (r *Ref) GetBuffer() *Buffer     { return (*Buffer)(hw.DmaGetOffset(uint(r.offset()))) }
-func (r *Ref) Data() unsafe.Pointer   { return hw.DmaGetOffset(uint(r.offset() + uint32(r.dataOffset))) }
+func (r *RefHeader) offset() uint32         { return r.offsetAndFlags &^ 0xf }
+func (dst *RefHeader) copyOffset(src *Ref)  { dst.offsetAndFlags |= src.offset() }
+func (r *RefHeader) Buffer() unsafe.Pointer { return hw.DmaGetOffset(uint(r.offset())) }
+func (r *RefHeader) GetBuffer() *Buffer     { return (*Buffer)(r.Buffer()) }
+func (r *RefHeader) Data() unsafe.Pointer {
+	return hw.DmaGetOffset(uint(r.offset() + uint32(r.dataOffset)))
+}
 
-func (r *Ref) DataSlice() (b []byte) {
+func (r *RefHeader) Flags() BufferFlag { return BufferFlag(r.offsetAndFlags & 0xf) }
+
+func RefFlag1(f BufferFlag, r0 *RefHeader) bool { return r0.offsetAndFlags&uint32(f) != 0 }
+func RefFlag2(f BufferFlag, r0, r1 *RefHeader) bool {
+	return (r0.offsetAndFlags|r1.offsetAndFlags)&uint32(f) != 0
+}
+func RefFlag4(f BufferFlag, r0, r1, r2, r3 *RefHeader) bool {
+	return (r0.offsetAndFlags|r1.offsetAndFlags|r2.offsetAndFlags|r3.offsetAndFlags)&uint32(f) != 0
+}
+
+func (r *RefHeader) DataSlice() (b []byte) {
 	var h reflect.SliceHeader
 	h.Data = uintptr(r.Data())
 	h.Len = int(r.dataLen)
@@ -81,13 +92,20 @@ const (
 // Buffer header.
 type BufferHeader struct {
 	// Identical to flags in buffer reference.
-	Flags flag
+	flags BufferFlag
 
 	// Valid only if NextValid flag is set.
-	NextBuffer uint32
+	nextRef RefHeader
 
 	// Number of clones of this buffer.
-	CloneCount uint32
+	cloneCount uint32
+}
+
+func (r *RefHeader) NextRef() (x *RefHeader) {
+	if r.Flags()&NextValid != 0 {
+		x = &r.GetBuffer().nextRef
+	}
+	return
 }
 
 type Buffer struct {

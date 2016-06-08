@@ -271,10 +271,7 @@ func (l *Loop) dataPoll(p inLooper) {
 		ap.timeNow = t0
 		p.LoopInput(l, n.looperOut)
 		nVec := n.out.call(l, ap)
-		t := cpu.TimeNow()
-		ap.nonIdleClocks += t - t0
-		ap.vectors += uint64(nVec)
-		ap.calls += 1
+		ap.pollerStats.update(nVec, t0)
 		c.toLoop <- struct{}{}
 	}
 }

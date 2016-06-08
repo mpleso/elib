@@ -70,32 +70,42 @@ func (ns rtNodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
 func (ns rtNodes) Len() int           { return len(ns) }
 
 func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
-	ns := rtNodes(make([]rtNode, len(l.dataNodes)))
+	ns := rtNodes{}
 	for i := range l.dataNodes {
 		n := l.dataNodes[i].GetNode()
-		var s nodeStats
+		var s [2]stats
 		for _, a := range l.activePollers {
 			if a.activeNodes != nil {
-				s.add(&a.activeNodes[i])
+				s[0].add(&a.activeNodes[i].inputStats)
+				s[1].add(&a.activeNodes[i].outputStats)
 			}
 		}
-		ns[i] = rtNode{
-			Name:    n.name,
-			Calls:   s.calls,
-			Vectors: s.vectors,
-			Clocks:  s.clocksPerVector(),
+		name := n.name
+		for j := range s {
+			io := " input"
+			if j == 1 {
+				io = " output"
+			}
+			if s[j].calls > 0 {
+				ns = append(ns, rtNode{
+					Name:    name + io,
+					Calls:   s[j].calls,
+					Vectors: s[j].vectors,
+					Clocks:  s[j].clocksPerVector(),
+				})
+			}
 		}
 	}
 
 	// Summary
 	{
-		var s pollerStats
+		var s stats
 		for _, a := range l.activePollers {
-			s.add(a)
+			s.add(&a.pollerStats)
 		}
 		if s.calls > 0 {
-			vecsPerSec := float64(s.vectors) / l.Seconds(s.nonIdleClocks)
-			clocksPerVec := float64(s.nonIdleClocks) / float64(s.vectors)
+			vecsPerSec := float64(s.vectors) / l.Seconds(s.clocks)
+			clocksPerVec := float64(s.clocks) / float64(s.vectors)
 			vecsPerCall := float64(s.vectors) / float64(s.calls)
 			fmt.Fprintf(w, "Vectors: %d, Vectors/sec: %.2e, Clocks/vector: %.2f, Vectors/call %.2f\n",
 				s.vectors, vecsPerSec, clocksPerVec, vecsPerCall)
@@ -109,9 +119,10 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (
 
 func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
 	for _, a := range l.activePollers {
-		a.statsLastClear = a.pollerStats
+		a.pollerStats.clear()
 		for j := range a.activeNodes {
-			a.activeNodes[j].statsLastClear = a.activeNodes[j].nodeStats
+			a.activeNodes[j].inputStats.clear()
+			a.activeNodes[j].outputStats.clear()
 		}
 	}
 	return
