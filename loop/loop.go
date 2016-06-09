@@ -29,6 +29,7 @@ type Node struct {
 	outIns               []LooperIn
 	nextIndexByNodeIndex map[uint]uint
 	nodeIndexByNext      []uint
+	Next                 []string
 }
 
 func (n *Node) GetNode() *Node { return n }
@@ -86,7 +87,7 @@ type Loop struct {
 	eventPollers           []EventPoller
 	eventHandlers          []EventHandler
 	dataPollers            []inLooper
-	dataNodes              []Noder
+	DataNodes              []Noder
 	dataNodeByName         map[string]Noder
 	loopIniters            []Initer
 	loopExiters            []Exiter
@@ -105,7 +106,6 @@ type Loop struct {
 }
 
 func (l *Loop) Seconds(t cpu.Time) float64 { return float64(t) * l.secsPerCycle }
-func (l *Loop) DataNode(i uint) Noder      { return l.dataNodes[i] }
 
 type loopEvent struct {
 	actor event.Actor
@@ -331,8 +331,8 @@ type initHook func(l *Loop)
 
 var initHooks, exitHooks initHookVec
 
-func AddInit(f initHook, deps ...*dep.Dep) { initHooks.Add(f, deps...) }
-func AddExit(f initHook, deps ...*dep.Dep) { exitHooks.Add(f, deps...) }
+func AddInit(f initHook, d ...*dep.Dep) { initHooks.Add(f, d...) }
+func AddExit(f initHook, d ...*dep.Dep) { exitHooks.Add(f, d...) }
 
 func (l *Loop) callInitHooks() {
 	for i := range initHooks.hooks {
@@ -370,6 +370,17 @@ func (l *Loop) doInitNodes() {
 	l.wg.Wait()
 }
 
+func (l *Loop) nodeGraphInit() {
+	for _, n := range l.DataNodes {
+		x := n.GetNode()
+		for _, name := range x.Next {
+			if _, ok := l.AddNamedNext(n, name); !ok {
+				panic(fmt.Errorf("unknown next named %s", name))
+			}
+		}
+	}
+}
+
 func (l *Loop) doExit() {
 	l.callExitHooks()
 	for i := range l.loopExiters {
@@ -388,6 +399,7 @@ func (l *Loop) Run() {
 	l.startPollers()
 	l.registrationsNeedStart = true
 	l.doInitNodes()
+	l.nodeGraphInit()
 	for !l.doEvents() {
 		l.doPollers()
 	}
@@ -396,8 +408,8 @@ func (l *Loop) Run() {
 
 func (l *Loop) addDataNode(r Noder) {
 	n := r.GetNode()
-	n.index = uint(len(l.dataNodes))
-	l.dataNodes = append(l.dataNodes, r)
+	n.index = uint(len(l.DataNodes))
+	l.DataNodes = append(l.DataNodes, r)
 	if l.dataNodeByName == nil {
 		l.dataNodeByName = make(map[string]Noder)
 	}

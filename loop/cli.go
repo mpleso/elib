@@ -71,8 +71,8 @@ func (ns rtNodes) Len() int           { return len(ns) }
 
 func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
 	ns := rtNodes{}
-	for i := range l.dataNodes {
-		n := l.dataNodes[i].GetNode()
+	for i := range l.DataNodes {
+		n := l.DataNodes[i].GetNode()
 		var s [2]stats
 		for _, a := range l.activePollers {
 			if a.activeNodes != nil {

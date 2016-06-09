@@ -127,7 +127,7 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 	}
 	if len(inSlices) > 0 {
 		a.outSlice = &inSlices[0]
-		n := l.dataNodes[a.index].GetNode()
+		n := l.DataNodes[a.index].GetNode()
 		for i := range n.outIns {
 			a.addNext(n.outIns[i])
 		}
@@ -202,12 +202,12 @@ func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (nextIndex uint, o
 }
 
 func (ap *activePoller) init(l *Loop, api uint) {
-	nNodes := uint(len(l.dataNodes))
+	nNodes := uint(len(l.DataNodes))
 	ap.index = uint16(api)
 	ap.activeNodes = make([]activeNode, nNodes)
 	for ni := range ap.activeNodes {
 		a := &ap.activeNodes[ni]
-		n := l.dataNodes[ni]
+		n := l.DataNodes[ni]
 
 		a.index = uint32(ni)
 		if d, ok := n.(outNoder); ok {
@@ -236,7 +236,7 @@ func (ap *activePoller) init(l *Loop, api uint) {
 		a.out.alloc(uint(len(a.outIns)))
 		for xi := range a.outIns {
 			oi := a.outIns[xi]
-			aNode := l.dataNodes[a.index].GetNode()
+			aNode := l.DataNodes[a.index].GetNode()
 			a.out.nextNodes[xi] = uint32(aNode.nodeIndexByNext[xi])
 			i := oi.GetIn()
 			i.activeIndex = ap.index

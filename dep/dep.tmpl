@@ -24,8 +24,10 @@ func (t *{{.DepsType}}) Get(i int) {{.Type}} {
 }
 
 func (t *{{.DepsType}}) Add(x {{.Type}}, ds ...*dep.Dep) {
-	for i := range ds {
-		t.deps.Add(ds[i])
+	if len(ds) == 0 {
+		t.deps.Add(&dep.Dep{})
+	} else {
+		t.deps.Add(ds[0])
 	}
 	t.{{.Data}} = append(t.{{.Data}}, x)
 }
