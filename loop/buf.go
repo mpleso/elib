@@ -45,8 +45,10 @@ func (r *RefHeader) GetBuffer() *Buffer     { return (*Buffer)(r.Buffer()) }
 func (r *RefHeader) Data() unsafe.Pointer {
 	return hw.DmaGetOffset(uint(r.offset() + uint32(r.dataOffset)))
 }
+func (r *RefHeader) DataPhys() uintptr { return hw.DmaPhysAddress(uintptr(r.Data())) }
 
-func (r *RefHeader) Flags() BufferFlag { return BufferFlag(r.offsetAndFlags & 0xf) }
+func (r *RefHeader) Flags() BufferFlag         { return BufferFlag(r.offsetAndFlags & 0xf) }
+func (r *RefHeader) NextValidFlag() BufferFlag { return BufferFlag(r.offsetAndFlags) & NextValid }
 
 func RefFlag1(f BufferFlag, r0 *RefHeader) bool { return r0.offsetAndFlags&uint32(f) != 0 }
 func RefFlag2(f BufferFlag, r0, r1 *RefHeader) bool {
