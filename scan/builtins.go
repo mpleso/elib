@@ -320,6 +320,8 @@ func NewStringMap(a []string) (m StringMap) {
 }
 
 func (m StringMap) Parse(s *Scanner) (v uint, err error) {
+	save := s.Save()
+	defer func() { s.ErrRestore(err, save) }()
 	_, text := s.ScanSkipWhite()
 	var ok bool
 	if v, ok = m[text]; !ok {
