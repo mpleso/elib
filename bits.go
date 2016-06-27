@@ -3,12 +3,19 @@ package elib
 // Underlying machine word, typically 32 or 64 bits.
 type Word uintptr
 
+//go:generate gentemplate -d Package=elib -id Word -d VecType=WordVec -d Type=Word vec.tmpl
+
 const (
 	// Compute the size _S of a Word in bytes.
 	_m           = ^Word(0)
 	Log2WordBits = 3 + (_m>>8&1 + _m>>16&1 + _m>>32&1)
 	WordBits     = 1 << Log2WordBits
 )
+
+// Helper to index word sized bitmaps.
+func (i Word) BitmapIndex() (Word, Word) {
+	return i / WordBits, 1 << (i % WordBits)
+}
 
 func NSetBits(y Word) uint {
 	x := uint64(y)
