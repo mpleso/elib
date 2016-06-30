@@ -93,9 +93,6 @@ const (
 
 // Buffer header.
 type BufferHeader struct {
-	// Identical to flags in buffer reference.
-	flags BufferFlag
-
 	// Valid only if NextValid flag is set.
 	nextRef RefHeader
 
