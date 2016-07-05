@@ -55,6 +55,10 @@ func (n *Node) activate(enable bool, count uint) {
 		n.active = enable
 		n.activeCount = count
 		n.loop.countActive(enable)
+		// Interrupt wait to poll active nodes.
+		if enable && n.loop.eventWaiting {
+			n.loop.Interrupt()
+		}
 	}
 }
 
@@ -97,6 +101,7 @@ type Loop struct {
 	events                 chan loopEvent
 	eventPool              event.Pool
 	registrationsNeedStart bool
+	eventWaiting           bool
 	startTime              cpu.Time
 	now                    cpu.Time
 	cyclesPerSec           float64
@@ -192,18 +197,21 @@ func (l *Loop) eventPoller(p EventPoller) {
 }
 func (l *Loop) startEventPoller(n EventPoller) { go l.eventPoller(n) }
 
-func (l *Loop) doEventNoWait() (done bool) {
+func (l *Loop) doEventNoWait() (quit *quitEvent) {
 	l.now = cpu.TimeNow()
 	select {
 	case e := <-l.events:
-		done = e.isQuit()
+		var ok bool
+		if quit, ok = e.actor.(*quitEvent); ok {
+			return
+		}
 		e.EventAction()
 	default:
 	}
 	return
 }
 
-func (l *Loop) doEventWait() (done bool) {
+func (l *Loop) doEventWait() (quit *quitEvent) {
 	l.now = cpu.TimeNow()
 	dt := time.Duration(1<<63 - 1)
 	if t, ok := l.eventPool.NextTime(); ok {
@@ -211,19 +219,27 @@ func (l *Loop) doEventWait() (done bool) {
 	}
 	select {
 	case e := <-l.events:
-		done = e.isQuit()
+		var ok bool
+		if quit, ok = e.actor.(*quitEvent); ok {
+			return
+		}
 		e.EventAction()
 	case <-time.After(dt):
 	}
 	return
 }
 
-func (l *Loop) doEvents() (done bool) {
+func (l *Loop) doEvents() (quit *quitEvent) {
 	// Handle discrete events.
 	if l.nActivePollers > 0 {
-		done = l.doEventNoWait()
+		quit = l.doEventNoWait()
 	} else {
-		done = l.doEventWait()
+		l.eventWaiting = true
+		quit = l.doEventWait()
+		l.eventWaiting = false
+	}
+	if quit != nil {
+		return
 	}
 
 	// Handle expired timed events.
@@ -376,7 +392,7 @@ func (l *Loop) nodeGraphInit() {
 		x := n.GetNode()
 		for _, name := range x.Next {
 			if _, ok := l.AddNamedNext(n, name); !ok {
-				panic(fmt.Errorf("unknown next named %s", name))
+				panic(fmt.Errorf("%s: unknown next named %s", nodeName(n), name))
 			}
 		}
 	}
@@ -401,7 +417,10 @@ func (l *Loop) Run() {
 	l.registrationsNeedStart = true
 	l.doInitNodes()
 	l.nodeGraphInit()
-	for !l.doEvents() {
+	for {
+		if quit := l.doEvents(); quit != nil && quit.Type == quitEventExit {
+			break
+		}
 		l.doPollers()
 	}
 	l.doExit()
@@ -413,6 +432,9 @@ func (l *Loop) addDataNode(r Noder) {
 	l.DataNodes = append(l.DataNodes, r)
 	if l.dataNodeByName == nil {
 		l.dataNodeByName = make(map[string]Noder)
+	}
+	if _, ok := l.dataNodeByName[n.name]; ok {
+		panic(fmt.Errorf("%s: more than one node with this name", n.name))
 	}
 	l.dataNodeByName[n.name] = r
 }
@@ -477,12 +499,26 @@ func (l *Loop) RegisterEventPoller(p EventPoller) {
 	l.eventPollers = append(l.eventPollers, p)
 }
 
-type quitEvent struct{}
+type quitEvent struct{ Type quitEventType }
+type quitEventType uint8
 
-var ErrQuit = &quitEvent{}
+const (
+	quitEventExit quitEventType = iota
+	quitEventInterrupt
+)
 
-func (e *quitEvent) Error() string      { return "quit" }
-func (e *loopEvent) isQuit() (yes bool) { _, yes = e.actor.(*quitEvent); return }
-func (q *quitEvent) EventAction()       {}
-func (q *quitEvent) String() string     { return "quit" }
-func (l *Loop) Quit()                   { l.AddEvent(&quitEvent{}, nil) }
+var quitEventTypeStrings = [...]string{
+	quitEventExit:      "quit",
+	quitEventInterrupt: "interrupt",
+}
+
+var (
+	ErrQuit      = &quitEvent{Type: quitEventExit}
+	ErrInterrupt = &quitEvent{Type: quitEventInterrupt}
+)
+
+func (e *quitEvent) String() string { return quitEventTypeStrings[e.Type] }
+func (e *quitEvent) Error() string  { return e.String() }
+func (e *quitEvent) EventAction()   {}
+func (l *Loop) Quit()               { l.AddEvent(ErrQuit, nil) }
+func (l *Loop) Interrupt()          { l.AddEvent(ErrInterrupt, nil) }

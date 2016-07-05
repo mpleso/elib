@@ -207,11 +207,12 @@ func (r *RefHeader) slice(n uint) (l []Ref) {
 	return
 }
 
-func (p *BufferPool) AllocRefs(r *RefHeader, n uint) {
-	refs := r.slice(n)
+func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1) }
+
+func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 	var got, want uint
-	if got, want = uint(len(p.refs)), uint(len(refs)); got < want {
-		n := uint(elib.RoundPow2(elib.Word(want-got), 2*V))
+	if got, want = uint(len(p.refs)), n; got < want {
+		n := uint(elib.RoundPow2(elib.Word(want-got), 2*MaxVectorLen))
 		b := p.sizeIncludingOverhead
 		_, id, offset, _ := hw.DmaAlloc(n * b)
 		ri := got
@@ -235,7 +236,30 @@ func (p *BufferPool) AllocRefs(r *RefHeader, n uint) {
 		p.InitRefs(p.refs[got-n : got])
 	}
 
-	copy(refs, p.refs[got-want:got])
+	pr := p.refs[got-want : got]
+
+	if stride == 1 {
+		refs := r.slice(n)
+		copy(refs, pr)
+	} else {
+		l := n * stride
+		refs := r.slice(l)
+		i, ri := uint(0), uint(0)
+		for i+4 < n {
+			refs[ri+0*stride] = pr[i+0]
+			refs[ri+1*stride] = pr[i+1]
+			refs[ri+2*stride] = pr[i+2]
+			refs[ri+3*stride] = pr[i+3]
+			i += 4
+			ri += 4 * stride
+		}
+		for i < n {
+			refs[ri+0*stride] = pr[i+0]
+			i += 1
+			ri += 1 * stride
+		}
+	}
+
 	p.refs = p.refs[:got-want]
 }
 

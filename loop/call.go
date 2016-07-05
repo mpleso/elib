@@ -245,7 +245,7 @@ func (ap *activePoller) init(l *Loop, api uint) {
 }
 
 // Maximum vector length.
-const V = 256
+const MaxVectorLen = 256
 
 // Vector index.
 type Vi uint8
@@ -285,7 +285,7 @@ func (i *In) SetLen(l *Loop, nVec uint) {
 func (f *Out) nextVectors(xi uint) (nVec uint) {
 	nVec = uint(f.Len[xi])
 	if nVec == 0 {
-		nVec = V
+		nVec = MaxVectorLen
 	}
 	return
 }
