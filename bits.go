@@ -78,7 +78,7 @@ func (x Word) IsPow2() bool { return IsPow2(x) }
 func RoundPow2(x, p Word) Word       { return (x + p - 1) &^ (p - 1) }
 func (x Word) RoundPow2(p Word) Word { return RoundPow2(x, p) }
 
-func MinLog2(x Word) uint    { return 63 - NLeadingZeros(x) }
+func MinLog2(x Word) uint    { return WordBits - 1 - NLeadingZeros(x) }
 func (x Word) MinLog2() uint { return MinLog2(x) }
 
 func MaxLog2(x Word) uint {
@@ -103,7 +103,7 @@ func (x Word) MaxPow2() Word { return MaxPow2(x) }
 func NextSet(x Word) (v Word, i int) {
 	f := x & -x
 	v = x ^ f
-	i = int(63) - int(NLeadingZeros(f))
+	i = int(WordBits - 1 - NLeadingZeros(f))
 	return
 }
 func (x Word) NextSet() (Word, int) { return NextSet(x) }
