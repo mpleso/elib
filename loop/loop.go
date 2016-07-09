@@ -39,22 +39,10 @@ func (n *Node) ThreadId() uint { return uint(n.activePollerIndex) }
 func (n *Node) GetLoop() *Loop { return n.loop }
 func nodeName(n Noder) string  { return n.GetNode().name }
 
-func (l *Loop) countActive(enable bool) {
-	if enable {
-		l.nActivePollers++
-	} else {
-		if l.nActivePollers == 0 {
-			panic("decrement zero active pollers")
-		}
-		l.nActivePollers--
-	}
-}
-
 func (n *Node) activate(enable bool, count uint) {
 	if n.active != enable {
 		n.active = enable
 		n.activeCount = count
-		n.loop.countActive(enable)
 		// Interrupt wait to poll active nodes.
 		if enable && n.loop.eventWaiting {
 			n.loop.Interrupt()
@@ -97,7 +85,7 @@ type Loop struct {
 	loopIniters            []Initer
 	loopExiters            []Exiter
 	activePollers          []*activePoller
-	nActivePollers         uint32
+	nActivePollers         uint
 	events                 chan loopEvent
 	eventPool              event.Pool
 	registrationsNeedStart bool
@@ -316,10 +304,8 @@ func (l *Loop) doPollers() {
 			nActive++
 			if c.activeCount > 0 {
 				c.activeCount--
-				if c.activeCount == 0 {
-					c.active = false
-					l.countActive(false)
-				}
+				// Poller becomes inactive when count decrements to zero.
+				c.active = c.activeCount != 0
 			}
 			c.fromLoop <- struct{}{}
 		}
@@ -330,8 +316,7 @@ func (l *Loop) doPollers() {
 		<-l.activePollers[i].pollerNode.toLoop
 	}
 
-	// Wait for workers to finish.
-	l.wg.Wait()
+	l.nActivePollers = nActive
 }
 
 func (l *Loop) timerInit() {
