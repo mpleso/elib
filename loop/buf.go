@@ -267,7 +267,7 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 	toFree := rh.slice(n)
 	l := uint(len(p.refs))
-	p.refs.Resize(uint(n))
+	p.refs.Resize(n)
 	r := p.refs[l:]
 
 	t := p.Ref
@@ -298,5 +298,5 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		n -= 1
 	}
 
-	p.InitRefs(p.refs[l:])
+	p.InitRefs(r)
 }
