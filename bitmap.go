@@ -137,6 +137,10 @@ func (p *BitmapPool) Set(b Bitmap, x uint) (r Bitmap) {
 func (p *BitmapPool) Get(b Bitmap, x uint) (v bool) {
 	if !b.isPoolIndex() {
 		m := Bitmap(1) << x
+		// Out of range bits are always zero.
+		if x >= WordBits {
+			m = 0
+		}
 		return b&m != 0
 	}
 	i, m := bitmapIndex(x)
