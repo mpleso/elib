@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,7 +22,8 @@ type Node struct {
 	fromLoop             chan struct{}
 	eventVec             event.ActorVec
 	active               bool
-	activeCount          uint
+	polling              bool
+	suspended            bool
 	dataCaller           inOutLooper
 	activePollerIndex    uint
 	initOnce             sync.Once
@@ -35,24 +37,46 @@ type Node struct {
 func (n *Node) GetNode() *Node { return n }
 func (n *Node) Index() uint    { return n.index }
 func (n *Node) Name() string   { return n.name }
-func (n *Node) ThreadId() uint { return uint(n.activePollerIndex) }
 func (n *Node) GetLoop() *Loop { return n.loop }
+func (n *Node) ThreadId() uint { return n.activePollerIndex }
 func nodeName(n Noder) string  { return n.GetNode().name }
 
-func (n *Node) activate(enable bool, count uint) {
+func (n *Node) getActivePoller(l *Loop) *activePoller {
+	return l.activePollerPool.entries[n.activePollerIndex]
+}
+
+func (n *Node) allocActivePoller(l *Loop) {
+	i := l.activePollerPool.GetIndex()
+	a := l.activePollerPool.entries[i]
+	if a == nil {
+		a = &activePoller{}
+		l.activePollerPool.entries[i] = a
+	}
+	a.index = uint16(i)
+	n.activePollerIndex = i
+	a.pollerNode = n
+	elog.GenEventf("alloc poller %d %s", i, n.name)
+}
+
+func (n *Node) freeActivePoller(l *Loop) {
+	a := n.getActivePoller(l)
+	a.pollerNode = nil
+	i := n.activePollerIndex
+	l.activePollerPool.PutIndex(i)
+	n.activePollerIndex = ^uint(0)
+	a.index = ^uint16(0)
+	elog.GenEventf("free poller %d %s", i, n.name)
+}
+
+func (n *Node) Activate(enable bool) {
 	if n.active != enable {
 		n.active = enable
-		n.activeCount = count
 		// Interrupt wait to poll active nodes.
 		if enable && n.loop.eventWaiting {
 			n.loop.Interrupt()
 		}
 	}
 }
-
-func (n *Node) Activate(enable bool)     { n.activate(enable, 0) }
-func (n *Node) ActivateCount(count uint) { n.activate(true, count) }
-func (n *Node) ActivateOnce(enable bool) { n.activate(enable, 1) }
 
 type Noder interface {
 	GetNode() *Node
@@ -77,26 +101,33 @@ type Exiter interface {
 }
 
 type Loop struct {
-	eventPollers           []EventPoller
-	eventHandlers          []EventHandler
-	dataPollers            []inLooper
-	DataNodes              []Noder
-	dataNodeByName         map[string]Noder
-	loopIniters            []Initer
-	loopExiters            []Exiter
-	activePollers          []*activePoller
-	nActivePollers         uint
-	events                 chan loopEvent
-	eventPool              event.Pool
+	DataNodes      []Noder
+	dataNodeByName map[string]Noder
+
+	eventPollers  []EventPoller
+	eventHandlers []EventHandler
+
+	loopIniters []Initer
+	loopExiters []Exiter
+
+	dataPollers      []inLooper
+	activePollerPool activePollerPool
+	nActivePollers   uint
+	pollerStats      pollerStats
+
+	events       chan loopEvent
+	eventPool    event.Pool
+	eventWaiting bool
+	wg           sync.WaitGroup
+
 	registrationsNeedStart bool
-	eventWaiting           bool
 	startTime              cpu.Time
 	now                    cpu.Time
 	cyclesPerSec           float64
 	secsPerCycle           float64
 	timeDurationPerCycle   float64
-	wg                     sync.WaitGroup
-	cli                    LoopCli
+
+	cli LoopCli
 }
 
 func (l *Loop) Seconds(t cpu.Time) float64 { return float64(t) * l.secsPerCycle }
@@ -134,16 +165,6 @@ func (e *loopEvent) EventAction() {
 
 func (e *loopEvent) String() string { return "loop event" }
 
-type loopLogEvent struct {
-	s [elog.EventDataBytes]byte
-}
-
-func (e *loopLogEvent) String() string      { return fmt.Sprintf("loop event: %s", elog.String(e.s[:])) }
-func (e *loopLogEvent) Encode(b []byte) int { return copy(b, e.s[:]) }
-func (e *loopLogEvent) Decode(b []byte) int { return copy(e.s[:], b) }
-
-//go:generate gentemplate -d Package=loop -id loopLogEvent -d Type=loopLogEvent github.com/platinasystems/elib/elog/event.tmpl
-
 func (l *Loop) doEvent(e event.Actor) {
 	defer func() {
 		if err := recover(); err == ErrQuit {
@@ -154,7 +175,7 @@ func (l *Loop) doEvent(e event.Actor) {
 		}
 	}()
 	if elog.Enabled() {
-		le := loopLogEvent{}
+		le := eventElogEvent{}
 		copy(le.s[:], e.String())
 		le.Log()
 	}
@@ -262,13 +283,24 @@ func (l *Loop) startPollers() {
 	}
 }
 
+func (l *Loop) Suspend(in *In) {
+	a := l.activePollerPool.entries[in.activeIndex]
+	p := a.pollerNode
+	p.pollerElog(poller_suspend, byte(a.index))
+	p.suspended = true
+	p.toLoop <- struct{}{}
+	<-p.fromLoop
+	p.suspended = false
+	p.pollerElog(poller_resume, byte(a.index))
+}
+
 func (l *Loop) dataPoll(p inLooper) {
 	c := p.GetNode()
 	for {
 		<-c.fromLoop
-		ap := l.activePollers[c.activePollerIndex]
+		ap := c.getActivePoller(l)
 		if ap.activeNodes == nil {
-			ap.init(l, c.activePollerIndex)
+			ap.initNodes(l)
 		}
 		n := &ap.activeNodes[c.index]
 		ap.currentNode = n
@@ -277,6 +309,8 @@ func (l *Loop) dataPoll(p inLooper) {
 		p.LoopInput(l, n.looperOut)
 		nVec := n.out.call(l, ap)
 		ap.pollerStats.update(nVec, t0)
+		l.pollerStats.update(nVec)
+		c.pollerElog(poller_sig, byte(ap.index))
 		c.toLoop <- struct{}{}
 	}
 }
@@ -289,33 +323,49 @@ func (l *Loop) startDataPoller(n inLooper) {
 }
 
 func (l *Loop) doPollers() {
-	if l.activePollers == nil {
-		l.activePollers = make([]*activePoller, len(l.dataPollers))
-		for i := range l.activePollers {
-			l.activePollers[i] = &activePoller{}
-		}
-	}
-	nActive := uint(0)
 	for _, p := range l.dataPollers {
-		c := p.GetNode()
-		if c.active {
-			l.activePollers[nActive].pollerNode = c
-			c.activePollerIndex = nActive
-			nActive++
-			if c.activeCount > 0 {
-				c.activeCount--
-				// Poller becomes inactive when count decrements to zero.
-				c.active = c.activeCount != 0
-			}
-			c.fromLoop <- struct{}{}
+		n := p.GetNode()
+		if !(n.active || n.suspended) {
+			continue
 		}
+		if n.activePollerIndex == ^uint(0) {
+			n.allocActivePoller(n.loop)
+		}
+		n.polling = true
+		n.pollerElog(poller_start, byte(n.activePollerIndex))
+		n.fromLoop <- struct{}{}
 	}
 
 	// Wait for pollers to finish.
-	for i := uint(0); i < nActive; i++ {
-		<-l.activePollers[i].pollerNode.toLoop
+	nActive := uint(0)
+	for i := uint(0); i < l.activePollerPool.Len(); i++ {
+		if l.activePollerPool.IsFree(i) {
+			continue
+		}
+		n := l.activePollerPool.entries[i].pollerNode
+		if !n.polling {
+			continue
+		}
+
+		<-n.toLoop
+		n.polling = false
+		n.pollerElog(poller_done, byte(n.activePollerIndex))
+
+		// If not active anymore we can free it now.
+		if !(n.active || n.suspended) {
+			if !l.activePollerPool.IsFree(n.activePollerIndex) {
+				n.freeActivePoller(l)
+			}
+		} else {
+			nActive++
+		}
 	}
 
+	if nActive == 0 && l.nActivePollers > 0 {
+		l.resetPollerStats()
+	} else {
+		l.doPollerStats()
+	}
 	l.nActivePollers = nActive
 }
 
@@ -411,9 +461,98 @@ func (l *Loop) Run() {
 	l.doExit()
 }
 
+type pollerCounts struct {
+	nActiveNodes   uint32
+	nActiveVectors uint32
+}
+
+type pollerStats struct {
+	loopCount          uint64
+	updateCount        uint64
+	current            pollerCounts
+	history            [1 << log2PollerHistorySize]pollerCounts
+	interruptsDisabled bool
+}
+
+const (
+	log2LoopsPerStatsUpdate = 7
+	loopsPerStatsUpdate     = 1 << log2LoopsPerStatsUpdate
+	log2PollerHistorySize   = 1
+	// When vector rate crosses threshold disable interrupts and switch to polling mode.
+	interruptDisableThreshold float64 = 10
+)
+
+type InterruptEnabler interface {
+	InterruptEnable(enable bool)
+}
+
+func (l *Loop) resetPollerStats() {
+	s := &l.pollerStats
+	s.loopCount = 0
+	for i := range s.history {
+		s.history[i].reset()
+	}
+	s.current.reset()
+	if s.interruptsDisabled {
+		l.disableInterrupts(false)
+	}
+}
+
+func (l *Loop) disableInterrupts(disable bool) {
+	enable := !disable
+	for _, n := range l.dataPollers {
+		if x, ok := n.(InterruptEnabler); ok {
+			n.GetNode().Activate(disable)
+			x.InterruptEnable(enable)
+		}
+	}
+	l.pollerStats.interruptsDisabled = disable
+	if elog.Enabled() {
+		elog.GenEventf("loop: irq disable %v", disable)
+	}
+}
+
+func (l *Loop) doPollerStats() {
+	s := &l.pollerStats
+	s.loopCount++
+	if s.loopCount&(1<<log2LoopsPerStatsUpdate-1) == 0 {
+		s.history[s.updateCount&(1<<log2PollerHistorySize-1)] = s.current
+		s.updateCount++
+		disable := s.current.vectorRate() > interruptDisableThreshold
+		if disable != s.interruptsDisabled {
+			l.disableInterrupts(disable)
+		}
+		s.current.reset()
+	}
+}
+
+func (s *pollerStats) update(nVec uint) {
+	v := uint32(0)
+	if nVec > 0 {
+		v = 1
+	}
+	c := &s.current
+	atomic.AddUint32(&c.nActiveVectors, uint32(nVec))
+	atomic.AddUint32(&c.nActiveNodes, v)
+}
+
+func (c *pollerCounts) vectorRate() float64 {
+	return float64(c.nActiveVectors) / float64(1<<log2LoopsPerStatsUpdate)
+}
+
+func (c *pollerCounts) reset() {
+	c.nActiveVectors = 0
+	c.nActiveNodes = 0
+}
+
+func (s *pollerStats) VectorRate() float64 {
+	return s.history[(s.updateCount-1)&(1<<log2PollerHistorySize-1)].vectorRate()
+}
+
 func (l *Loop) addDataNode(r Noder) {
 	n := r.GetNode()
 	n.index = uint(len(l.DataNodes))
+	n.activePollerIndex = ^uint(0)
 	l.DataNodes = append(l.DataNodes, r)
 	if l.dataNodeByName == nil {
 		l.dataNodeByName = make(map[string]Noder)

@@ -56,6 +56,8 @@ type activePoller struct {
 	pollerStats nodeStats
 }
 
+//go:generate gentemplate -d Package=loop -id activePoller -d PoolType=activePollerPool -d Type=*activePoller -d Data=entries github.com/platinasystems/elib/pool.tmpl
+
 var looperInType = reflect.TypeOf((*LooperIn)(nil)).Elem()
 
 func asLooperIn(v reflect.Value) (in LooperIn, err error) {
@@ -180,9 +182,9 @@ func (l *Loop) AddNext(thisNoder Noder, nextNoder inNoder) (nextIndex uint) {
 	li := nextNoder.MakeLoopIn()
 	this.outIns = append(this.outIns, li)
 	this.nodeIndexByNext = append(this.nodeIndexByNext, next.index)
-	for i := range l.activePollers {
-		l.activePollers[i].activeNodes[this.index].addNext(li)
-	}
+	l.activePollerPool.Foreach(func(p *activePoller) {
+		p.activeNodes[this.index].addNext(li)
+	})
 	return
 }
 
@@ -201,9 +203,8 @@ func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (nextIndex uint, o
 	return
 }
 
-func (ap *activePoller) init(l *Loop, api uint) {
+func (ap *activePoller) initNodes(l *Loop) {
 	nNodes := uint(len(l.DataNodes))
-	ap.index = uint16(api)
 	ap.activeNodes = make([]activeNode, nNodes)
 	for ni := range ap.activeNodes {
 		a := &ap.activeNodes[ni]
@@ -269,7 +270,7 @@ func (f *Out) alloc(nNext uint) {
 }
 
 // Fetch out frame for current active node.
-func (i *In) currentThread(l *Loop) *activePoller { return l.activePollers[i.activeIndex] }
+func (i *In) currentThread(l *Loop) *activePoller { return l.activePollerPool.entries[i.activeIndex] }
 func (i *In) currentOut(l *Loop) *Out             { return i.currentThread(l).currentNode.out }
 
 // Set vector length for given in.

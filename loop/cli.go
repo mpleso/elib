@@ -74,12 +74,12 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (
 	for i := range l.DataNodes {
 		n := l.DataNodes[i].GetNode()
 		var s [2]stats
-		for _, a := range l.activePollers {
+		l.activePollerPool.Foreach(func(a *activePoller) {
 			if a.activeNodes != nil {
 				s[0].add(&a.activeNodes[i].inputStats)
 				s[1].add(&a.activeNodes[i].outputStats)
 			}
-		}
+		})
 		name := n.name
 		for j := range s {
 			io := " input"
@@ -100,9 +100,9 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (
 	// Summary
 	{
 		var s stats
-		for _, a := range l.activePollers {
+		l.activePollerPool.Foreach(func(a *activePoller) {
 			s.add(&a.pollerStats)
-		}
+		})
 		if s.calls > 0 {
 			vecsPerSec := float64(s.vectors) / l.Seconds(s.clocks)
 			clocksPerVec := float64(s.clocks) / float64(s.vectors)
@@ -118,13 +118,13 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (
 }
 
 func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
-	for _, a := range l.activePollers {
+	l.activePollerPool.Foreach(func(a *activePoller) {
 		a.pollerStats.clear()
 		for j := range a.activeNodes {
 			a.activeNodes[j].inputStats.clear()
 			a.activeNodes[j].outputStats.clear()
 		}
-	}
+	})
 	return
 }
 

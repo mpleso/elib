@@ -21,8 +21,12 @@ func (p *StringPool) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
 }
 
-func (p *StringPool) IsFree(i uint) (ok bool) {
-	return p.Pool.IsFree(i)
+func (p *StringPool) IsFree(i uint) (v bool) {
+	v = i >= uint(len(p.Strings))
+	if !v {
+		v = p.Pool.IsFree(i)
+	}
+	return
 }
 
 func (p *StringPool) Resize(n uint) {

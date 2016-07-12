@@ -21,8 +21,12 @@ func (p *BitmapPool) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
 }
 
-func (p *BitmapPool) IsFree(i uint) (ok bool) {
-	return p.Pool.IsFree(i)
+func (p *BitmapPool) IsFree(i uint) (v bool) {
+	v = i >= uint(len(p.bitmaps))
+	if !v {
+		v = p.Pool.IsFree(i)
+	}
+	return
 }
 
 func (p *BitmapPool) Resize(n uint) {
