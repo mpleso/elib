@@ -32,8 +32,12 @@ func (p * {{.PoolType}}) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
 }
 
-func (p * {{.PoolType}}) IsFree(i uint) (ok bool) {
-	return p.Pool.IsFree(i)
+func (p * {{.PoolType}}) IsFree(i uint) (v bool) {
+	v = i >= uint(len(p.{{.Data}}))
+	if !v {
+		v = p.Pool.IsFree(i)
+	}
+	return
 }
 
 func (p * {{.PoolType}}) Resize(n uint) {
