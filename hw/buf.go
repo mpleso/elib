@@ -1,9 +1,8 @@
-package loop
+package hw
 
 import (
 	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cpu"
-	"github.com/platinasystems/hw"
 
 	"math"
 	"reflect"
@@ -40,12 +39,12 @@ type Ref struct {
 
 func (r *RefHeader) offset() uint32         { return r.offsetAndFlags &^ 0xf }
 func (dst *RefHeader) copyOffset(src *Ref)  { dst.offsetAndFlags |= src.offset() }
-func (r *RefHeader) Buffer() unsafe.Pointer { return hw.DmaGetOffset(uint(r.offset())) }
+func (r *RefHeader) Buffer() unsafe.Pointer { return DmaGetOffset(uint(r.offset())) }
 func (r *RefHeader) GetBuffer() *Buffer     { return (*Buffer)(r.Buffer()) }
 func (r *RefHeader) Data() unsafe.Pointer {
-	return hw.DmaGetOffset(uint(r.offset() + uint32(r.dataOffset)))
+	return DmaGetOffset(uint(r.offset() + uint32(r.dataOffset)))
 }
-func (r *RefHeader) DataPhys() uintptr { return hw.DmaPhysAddress(uintptr(r.Data())) }
+func (r *RefHeader) DataPhys() uintptr { return DmaPhysAddress(uintptr(r.Data())) }
 
 func (r *RefHeader) Flags() BufferFlag         { return BufferFlag(r.offsetAndFlags & 0xf) }
 func (r *RefHeader) NextValidFlag() BufferFlag { return BufferFlag(r.offsetAndFlags) & NextValid }
@@ -81,14 +80,14 @@ func (r *RefHeader) Restore(oldDataOffset int) {
 	r.dataLen = uint16(int(r.dataLen) - Δ)
 }
 
-//go:generate gentemplate -d Package=loop -id Ref -d VecType=RefVec -d Type=Ref github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=hw -id Ref -d VecType=RefVec -d Type=Ref github.com/platinasystems/elib/vec.tmpl
 
 const (
 	// Cache aligned/sized space for buffer header.
 	BufferHeaderBytes = cpu.CacheLineBytes
-	// Rewrite area.
-	RewriteBytes  = 128
-	overheadBytes = BufferHeaderBytes + RewriteBytes
+	// Rewrite (prepend) area.
+	BufferRewriteBytes = 128
+	overheadBytes      = BufferHeaderBytes + BufferRewriteBytes
 )
 
 // Buffer header.
@@ -149,7 +148,7 @@ func (p *BufferPool) bufferSize() uint {
 	return nLines * cpu.CacheLineBytes
 }
 
-var defaultRef = Ref{RefHeader: RefHeader{dataOffset: RewriteBytes}}
+var defaultRef = Ref{RefHeader: RefHeader{dataOffset: BufferRewriteBytes}}
 var defaultBuf = Buffer{}
 
 type BufferTemplate struct {
@@ -167,7 +166,7 @@ type BufferTemplate struct {
 
 var DefaultBufferTemplate = &BufferTemplate{
 	Size: 512,
-	Ref:  Ref{RefHeader: RefHeader{dataOffset: RewriteBytes}},
+	Ref:  defaultRef,
 }
 var DefaultBufferPool = NewBufferPool(DefaultBufferTemplate)
 
@@ -190,7 +189,7 @@ func NewBufferPool(t *BufferTemplate) (p *BufferPool) {
 
 func (p *BufferPool) Del() {
 	for i := range p.memChunkIDs {
-		hw.DmaFree(p.memChunkIDs[i])
+		DmaFree(p.memChunkIDs[i])
 	}
 	// Unlink garbage.
 	p.memChunkIDs = nil
@@ -212,9 +211,9 @@ func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1
 func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 	var got, want uint
 	if got, want = uint(len(p.refs)), n; got < want {
-		n := uint(elib.RoundPow2(elib.Word(want-got), 2*MaxVectorLen))
+		n := uint(elib.RoundPow2(elib.Word(want-got), 512))
 		b := p.sizeIncludingOverhead
-		_, id, offset, _ := hw.DmaAlloc(n * b)
+		_, id, offset, _ := DmaAlloc(n * b)
 		ri := got
 		p.refs.Resize(n)
 		p.memChunkIDs = append(p.memChunkIDs, id)

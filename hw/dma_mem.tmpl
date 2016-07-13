@@ -1,0 +1,63 @@
+{{/* -*- mode: Go -*- */}}
+
+{{if ne .TAGS ""}}
+//+build {{.TAGS}}
+{{end}}
+
+package {{.Package}}
+
+import (
+	"github.com/platinasystems/elib"
+	"github.com/platinasystems/elib/hw"
+
+	"unsafe"
+	"reflect"
+)
+
+type {{.Type}}Vec []{{.Type}}
+
+func fromByteSlice_{{.Type}}(b []byte, l, c int) (x {{.Type}}Vec) {
+	s := int(unsafe.Sizeof(x[0]))
+	if l == 0 {
+		l = len(b) / s
+		c = cap(b)
+	}
+	return *(*{{.Type}}Vec)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: uintptr(unsafe.Pointer(&b[0])),
+		Len:  l,
+		Cap:  c / s,
+	}))
+}
+
+func (x {{.Type}}Vec) toByteSlice() []byte {
+	l := len(x)
+	s := unsafe.Sizeof(x[0])
+	l *= int(s)
+	return *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: uintptr(unsafe.Pointer(&x[0])),
+		Len:  l,
+		Cap:  l}))
+}
+
+func {{.Type}}Alloc(n int) (x {{.Type}}Vec, id elib.Index) {
+	var b []byte
+	var c uint
+	b, id, _, c = hw.DmaAlloc(uint(n) * uint(unsafe.Sizeof(x[0])))
+	x = fromByteSlice_{{.Type}}(b, n, int(c))
+	return
+}
+
+func {{.Type}}New() (x {{.Type}}Vec, id elib.Index) { return {{.Type}}Alloc(1) }
+
+func (x *{{.Type}}Vec) Free(id elib.Index) {
+	hw.DmaFree(id)
+	*x = nil
+}
+
+func (x *{{.Type}}Vec) Get(id elib.Index) {
+	*x = fromByteSlice_{{.Type}} (hw.DmaGet(id), 0, 0)
+}
+
+func (x *{{.Type}}) PhysAddress() uintptr {
+	return hw.DmaPhysAddress(uintptr(unsafe.Pointer(x)))
+}
