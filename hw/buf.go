@@ -12,8 +12,8 @@ import (
 type BufferFlag uint32
 
 const (
-	NextValid BufferFlag = 1 << iota
-	Cloned
+	NextValid, Log2NextValid BufferFlag = 1 << iota, iota
+	Cloned, Log2Cloned
 )
 
 type RefHeader struct {
@@ -37,6 +37,7 @@ type Ref struct {
 	opaque [RefOpaqueBytes]byte
 }
 
+func (r *RefHeader) h() *RefHeader          { return r }
 func (r *RefHeader) offset() uint32         { return r.offsetAndFlags &^ 0xf }
 func (dst *RefHeader) copyOffset(src *Ref)  { dst.offsetAndFlags |= src.offset() }
 func (r *RefHeader) Buffer() unsafe.Pointer { return DmaGetOffset(uint(r.offset())) }
@@ -48,6 +49,9 @@ func (r *RefHeader) DataPhys() uintptr { return DmaPhysAddress(uintptr(r.Data())
 
 func (r *RefHeader) Flags() BufferFlag         { return BufferFlag(r.offsetAndFlags & 0xf) }
 func (r *RefHeader) NextValidFlag() BufferFlag { return BufferFlag(r.offsetAndFlags) & NextValid }
+func (r *RefHeader) Nextvalid() bool           { return r.NextValidFlag() != 0 }
+func (r *RefHeader) setNextValid()             { r.offsetAndFlags |= uint32(NextValid) }
+func (r *RefHeader) nextValidUint() uint       { return uint(1 & (r.offsetAndFlags >> Log2NextValid)) }
 
 func RefFlag1(f BufferFlag, r0 *RefHeader) bool { return r0.offsetAndFlags&uint32(f) != 0 }
 func RefFlag2(f BufferFlag, r0, r1 *RefHeader) bool {
@@ -262,6 +266,26 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 	p.refs = p.refs[:got-want]
 }
 
+type freeNextRefs struct {
+	count uint
+	refs  [1024]Ref
+}
+
+func (f *freeNextRefs) flush(p *BufferPool) {
+	if f.count > 0 {
+		p.FreeRefs(&f.refs[0].RefHeader, f.count)
+		f.count = 0
+	}
+}
+
+func (f *freeNextRefs) add(p *BufferPool, r *Ref, nextRef RefHeader) {
+	f.refs[f.count].RefHeader = nextRef
+	f.count += r.nextValidUint()
+	if f.count >= uint(len(f.refs)) {
+		f.flush(p)
+	}
+}
+
 // Return all buffers to pool and reset for next usage.
 func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 	toFree := rh.slice(n)
@@ -271,6 +295,7 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 
 	t := p.Ref
 	i := 0
+	var f freeNextRefs
 	for n >= 4 {
 		r0, r1, r2, r3 := &toFree[i+0], &toFree[i+1], &toFree[i+2], &toFree[i+3]
 		b0, b1, b2, b3 := r0.GetBuffer(), r1.GetBuffer(), r2.GetBuffer(), r3.GetBuffer()
@@ -279,12 +304,19 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		r[i+1].copyOffset(r1)
 		r[i+2].copyOffset(r2)
 		r[i+3].copyOffset(r3)
+		n0, n1, n2, n3 := b0.nextRef, b1.nextRef, b2.nextRef, b3.nextRef
 		b0.reset(p)
 		b1.reset(p)
 		b2.reset(p)
 		b3.reset(p)
 		i += 4
 		n -= 4
+		if RefFlag4(NextValid, r0.h(), r1.h(), r2.h(), r3.h()) {
+			f.add(p, r0, n0)
+			f.add(p, r1, n1)
+			f.add(p, r2, n2)
+			f.add(p, r3, n3)
+		}
 	}
 
 	for n > 0 {
@@ -292,10 +324,61 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		b0 := r0.GetBuffer()
 		r[i+0] = t
 		r[i+0].copyOffset(r0)
+		n0 := b0.nextRef
 		b0.reset(p)
 		i += 1
 		n -= 1
+		if RefFlag1(NextValid, r0.h()) {
+			f.add(p, r0, n0)
+		}
 	}
 
+	f.flush(p)
+
 	p.InitRefs(r)
+}
+
+// Chains of buffer references.
+type RefChain struct {
+	// Number of bytes in chain.
+	len uint64
+	// Head and tail buffer reference.
+	head Ref
+	tail RefHeader
+}
+
+func (c *RefChain) Len() uint64 { return c.len }
+func (c *RefChain) Head() *Ref  { return &c.head }
+
+// Return buffer head and reset for later re-use.
+func (c *RefChain) Done() (h Ref) {
+	h = c.head
+	c.head = Ref{}
+	c.tail = RefHeader{}
+	return
+}
+
+func (c *RefChain) Append(r *RefHeader) {
+	tail := r
+	if c.len == 0 {
+		c.len = uint64(r.dataLen)
+		c.head.RefHeader = *r
+		tail = &c.head.RefHeader
+	} else {
+		// Point current tail to given reference.
+		b := c.tail.GetBuffer()
+		b.nextRef = *r
+		c.head.setNextValid()
+		c.len += uint64(r.dataLen)
+	}
+	for {
+		// End of chain for reference to be added?
+		if x := tail.NextRef(); x == nil {
+			c.tail = *tail
+			break
+		} else {
+			c.len += uint64(x.dataLen)
+			tail = x
+		}
+	}
 }
