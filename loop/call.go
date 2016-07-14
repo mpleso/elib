@@ -282,6 +282,10 @@ func (i *In) SetLen(l *Loop, nVec uint) {
 		a.pending = append(a.pending, pending{in: i, nextIndex: uint32(xi), nodeIndex: o.nextNodes[xi]})
 	}
 }
+func (i *In) GetLen(l *Loop) uint {
+	xi, o := uint(i.nextIndex), i.currentOut(l)
+	return uint(o.Len[xi])
+}
 
 func (f *Out) nextVectors(xi uint) (nVec uint) {
 	nVec = uint(f.Len[xi])
