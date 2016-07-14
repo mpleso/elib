@@ -502,8 +502,8 @@ func (l *Loop) disableInterrupts(disable bool) {
 	enable := !disable
 	for _, n := range l.dataPollers {
 		if x, ok := n.(InterruptEnabler); ok {
-			n.GetNode().Activate(disable)
 			x.InterruptEnable(enable)
+			n.GetNode().Activate(disable)
 		}
 	}
 	l.pollerStats.interruptsDisabled = disable
