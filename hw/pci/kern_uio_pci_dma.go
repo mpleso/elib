@@ -155,14 +155,17 @@ func (h *uioPciDmaMain) heapInit(uioMinorDevice uint32, maxSize uint) (err error
 	r := uio_dma_alloc_req{}
 	r.dma_mask = 0xffffffff
 
-	ok := false
-	for r.chunk_size = uint32(maxSize); !ok; r.chunk_size /= 2 {
+	r.chunk_size = uint32(maxSize)
+	for {
 		r.chunk_count = uint32(maxSize) / r.chunk_size
 		_, _, e := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(h.uio_dma_fd), uintptr(uio_dma_alloc), uintptr(unsafe.Pointer(&r)))
-		ok = e == 0
+		if e == 0 {
+			break
+		}
 		if r.chunk_size == 4<<10 {
 			return fmt.Errorf("ioctl UIO_DMA_ALLOC fails: %s", e)
 		}
+		r.chunk_size /= 2
 	}
 
 	h.data, err = syscall.Mmap(h.uio_dma_fd, int64(r.mmap_offset), int(maxSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
