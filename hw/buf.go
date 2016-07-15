@@ -233,19 +233,26 @@ func (r *RefHeader) slice(n uint) (l []Ref) {
 
 func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1) }
 
-func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
-	var got, want uint
-	if got, want = uint(len(p.refs)), n; got < want {
-		// FIXME: this overflows for large buffer sizes.
+func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
+	var got uint
+	for {
+		if got = uint(len(p.refs)); got >= want {
+			break
+		}
 		b := p.sizeIncludingOverhead
-		n := uint(elib.RoundPow2(elib.Word(want-got), 256))
-		_, id, offset, _ := DmaAlloc(n * b)
+		n_alloc := uint(elib.RoundPow2(elib.Word(want-got), 256))
+		nb := n_alloc * b
+		for nb > 1<<20 {
+			n_alloc /= 2
+			nb /= 2
+		}
+		_, id, offset, _ := DmaAlloc(nb)
 		ri := got
-		p.refs.Resize(n)
+		p.refs.Resize(n_alloc)
 		p.memChunkIDs = append(p.memChunkIDs, id)
 		// Refs are allocated from end of refs so we put smallest offsets there.
-		o := offset + (n-1)*b
-		for i := uint(0); i < n; i++ {
+		o := offset + (n_alloc-1)*b
+		for i := uint(0); i < n_alloc; i++ {
 			r := p.Ref
 			r.offsetAndFlags += uint32(o)
 			p.refs[ri] = r
@@ -256,21 +263,21 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 				copy(d, p.Data)
 			}
 		}
-		got += n
+		got += n_alloc
 		// Possibly initialize/adjust newly made buffers.
-		p.InitRefs(p.refs[got-n : got])
+		p.InitRefs(p.refs[got-n_alloc : got])
 	}
 
 	pr := p.refs[got-want : got]
 
 	if stride == 1 {
-		refs := r.slice(n)
+		refs := r.slice(want)
 		copy(refs, pr)
 	} else {
-		l := n * stride
+		l := want * stride
 		refs := r.slice(l)
 		i, ri := uint(0), uint(0)
-		for i+4 < n {
+		for i+4 < want {
 			refs[ri+0*stride] = pr[i+0]
 			refs[ri+1*stride] = pr[i+1]
 			refs[ri+2*stride] = pr[i+2]
@@ -278,7 +285,7 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 			i += 4
 			ri += 4 * stride
 		}
-		for i < n {
+		for i < want {
 			refs[ri+0*stride] = pr[i+0]
 			i += 1
 			ri += 1 * stride
