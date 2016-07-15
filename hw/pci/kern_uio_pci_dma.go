@@ -52,6 +52,9 @@ func (h *uioPciDmaMain) alloc(ask uint) (b []byte, id elib.Index, offset uint, c
 
 	nBytes := uintptr(elib.Word(ask).RoundCacheLine())
 	nLines := uint(nBytes >> cpu.Log2CacheLineBytes)
+	if got, max := nLines, uint(1)<<h.log2LinesPerChunk; got > max {
+		panic(fmt.Errorf("request too large: %d lines > %d max", got, max))
+	}
 
 	idsToFree := []elib.Index{}
 	defer func() {
@@ -291,7 +294,7 @@ func (d *uioPciDevice) Open() (err error) {
 	// Initialize DMA heap once device is open.
 	m := uioPciDma
 	m.heapInitOnce.Do(func() {
-		err = m.heapInit(d.uioMinorDevice, 16<<20)
+		err = m.heapInit(d.uioMinorDevice, 64<<20)
 	})
 	if err != nil {
 		panic(err)
