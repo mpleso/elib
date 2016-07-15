@@ -478,3 +478,13 @@ func (c *RefChain) Append(r *RefHeader) {
 		}
 	}
 }
+
+func (c *RefChain) Validate() {
+	if !elib.Debug {
+		return
+	}
+	if got, want := c.head.TotalLen(), c.Len(); got != want {
+		panic(fmt.Errorf("length mismatch; got %d != want %d", got, want))
+	}
+	c.head.Validate()
+}
