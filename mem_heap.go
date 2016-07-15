@@ -63,3 +63,4 @@ func (h *MemHeap) Offset(b []byte) uint {
 }
 
 func (h *MemHeap) Data(o uint) unsafe.Pointer { return unsafe.Pointer(&h.data[o]) }
+func (h *MemHeap) OffsetValid(o uint) bool    { return o < uint(len(h.data)) }
