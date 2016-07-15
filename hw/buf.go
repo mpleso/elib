@@ -4,6 +4,7 @@ import (
 	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cpu"
 
+	"fmt"
 	"math"
 	"reflect"
 	"unsafe"
@@ -15,6 +16,13 @@ const (
 	NextValid, Log2NextValid BufferFlag = 1 << iota, iota
 	Cloned, Log2Cloned
 )
+
+var bufferFlagStrings = [...]string{
+	Log2NextValid: "next-valid",
+	Log2Cloned:    "cloned",
+}
+
+func (f BufferFlag) String() string { return elib.FlagStringer(bufferFlagStrings[:], elib.Word(f)) }
 
 type RefHeader struct {
 	// 28 bits of offset; 4 bits of flags.
@@ -49,7 +57,7 @@ func (r *RefHeader) DataPhys() uintptr { return DmaPhysAddress(uintptr(r.Data())
 
 func (r *RefHeader) Flags() BufferFlag         { return BufferFlag(r.offsetAndFlags & 0xf) }
 func (r *RefHeader) NextValidFlag() BufferFlag { return BufferFlag(r.offsetAndFlags) & NextValid }
-func (r *RefHeader) Nextvalid() bool           { return r.NextValidFlag() != 0 }
+func (r *RefHeader) NextIsValid() bool         { return r.NextValidFlag() != 0 }
 func (r *RefHeader) setNextValid()             { r.offsetAndFlags |= uint32(NextValid) }
 func (r *RefHeader) nextValidUint() uint       { return uint(1 & (r.offsetAndFlags >> Log2NextValid)) }
 
@@ -70,8 +78,8 @@ func (r *RefHeader) DataSlice() (b []byte) {
 	return
 }
 
-func (r *RefHeader) DataLen() uint { return uint(r.dataLen) }
-func (r *RefHeader) SetLen(l uint) { r.dataLen = uint16(l) }
+func (r *RefHeader) DataLen() uint     { return uint(r.dataLen) }
+func (r *RefHeader) SetDataLen(l uint) { r.dataLen = uint16(l) }
 func (r *RefHeader) Advance(i int) (oldDataOffset int) {
 	oldDataOffset = int(r.dataOffset)
 	r.dataOffset = uint16(oldDataOffset + i)
@@ -82,6 +90,17 @@ func (r *RefHeader) Restore(oldDataOffset int) {
 	r.dataOffset = uint16(oldDataOffset)
 	Δ := int(r.dataOffset) - oldDataOffset
 	r.dataLen = uint16(int(r.dataLen) - Δ)
+}
+
+// Length in buffer chain.
+func (r *RefHeader) TotalLen() (l uint) {
+	for {
+		l += r.DataLen()
+		if r = r.NextRef(); r == nil {
+			break
+		}
+	}
+	return
 }
 
 //go:generate gentemplate -d Package=hw -id Ref -d VecType=RefVec -d Type=Ref github.com/platinasystems/elib/vec.tmpl
@@ -125,6 +144,8 @@ type BufferPool struct {
 
 	// DMA memory chunks used by this pool.
 	memChunkIDs []elib.Index
+
+	freeNext freeNext
 }
 
 // Method to over-ride to initialize refs for this buffer pool.
@@ -215,8 +236,9 @@ func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1
 func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 	var got, want uint
 	if got, want = uint(len(p.refs)), n; got < want {
-		n := uint(elib.RoundPow2(elib.Word(want-got), 512))
+		// FIXME: this overflows for large buffer sizes.
 		b := p.sizeIncludingOverhead
+		n := uint(elib.RoundPow2(elib.Word(want-got), 256))
 		_, id, offset, _ := DmaAlloc(n * b)
 		ri := got
 		p.refs.Resize(n)
@@ -266,36 +288,37 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, n, stride uint) {
 	p.refs = p.refs[:got-want]
 }
 
-type freeNextRefs struct {
+type freeNext struct {
 	count uint
-	refs  [1024]Ref
+	refs  RefVec
 }
 
-func (f *freeNextRefs) flush(p *BufferPool) {
-	if f.count > 0 {
-		p.FreeRefs(&f.refs[0].RefHeader, f.count)
-		f.count = 0
-	}
-}
-
-func (f *freeNextRefs) add(p *BufferPool, r *Ref, nextRef RefHeader) {
-	f.refs[f.count].RefHeader = nextRef
-	f.count += r.nextValidUint()
-	if f.count >= uint(len(f.refs)) {
-		f.flush(p)
+func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
+	h := &r.RefHeader
+	if h.NextIsValid() {
+		for {
+			f.refs.Validate(f.count)
+			f.refs[f.count].RefHeader = nextRef
+			f.count++
+			if !nextRef.NextIsValid() {
+				break
+			}
+			b := nextRef.GetBuffer()
+			h = &b.nextRef
+			nextRef = *h
+		}
 	}
 }
 
 // Return all buffers to pool and reset for next usage.
 func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 	toFree := rh.slice(n)
-	l := uint(len(p.refs))
+	initialLen := uint(len(p.refs))
 	p.refs.Resize(n)
-	r := p.refs[l:]
+	r := p.refs[initialLen:]
 
 	t := p.Ref
 	i := 0
-	var f freeNextRefs
 	for n >= 4 {
 		r0, r1, r2, r3 := &toFree[i+0], &toFree[i+1], &toFree[i+2], &toFree[i+3]
 		b0, b1, b2, b3 := r0.GetBuffer(), r1.GetBuffer(), r2.GetBuffer(), r3.GetBuffer()
@@ -312,16 +335,17 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		i += 4
 		n -= 4
 		if RefFlag4(NextValid, r0.h(), r1.h(), r2.h(), r3.h()) {
-			f.add(p, r0, n0)
-			f.add(p, r1, n1)
-			f.add(p, r2, n2)
-			f.add(p, r3, n3)
+			p.freeNext.add(p, r0, n0)
+			p.freeNext.add(p, r1, n1)
+			p.freeNext.add(p, r2, n2)
+			p.freeNext.add(p, r3, n3)
 		}
 	}
 
 	for n > 0 {
 		r0 := &toFree[i+0]
 		b0 := r0.GetBuffer()
+		r0.Validate()
 		r[i+0] = t
 		r[i+0].copyOffset(r0)
 		n0 := b0.nextRef
@@ -329,55 +353,127 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		i += 1
 		n -= 1
 		if RefFlag1(NextValid, r0.h()) {
-			f.add(p, r0, n0)
+			p.freeNext.add(p, r0, n0)
 		}
 	}
 
-	f.flush(p)
+	if f := &p.freeNext; f.count > 0 {
+		n = f.count
+		f.count = 0
+		l := uint(len(p.refs))
+		p.refs.Resize(n)
+		r := p.refs[l:]
 
-	p.InitRefs(r)
+		i = 0
+		for n >= 4 {
+			r0, r1, r2, r3 := &f.refs[i+0], &f.refs[i+1], &f.refs[i+2], &f.refs[i+3]
+			b0, b1, b2, b3 := r0.GetBuffer(), r1.GetBuffer(), r2.GetBuffer(), r3.GetBuffer()
+			r[i+0], r[i+1], r[i+2], r[i+3] = t, t, t, t
+			r[i+0].copyOffset(r0)
+			r[i+1].copyOffset(r1)
+			r[i+2].copyOffset(r2)
+			r[i+3].copyOffset(r3)
+			b0.reset(p)
+			b1.reset(p)
+			b2.reset(p)
+			b3.reset(p)
+			i += 4
+			n -= 4
+		}
+
+		for n > 0 {
+			r0 := &f.refs[i+0]
+			b0 := r0.GetBuffer()
+			r[i+0] = t
+			r[i+0].copyOffset(r0)
+			b0.reset(p)
+			i += 1
+			n -= 1
+		}
+	}
+
+	p.InitRefs(p.refs[initialLen:])
+}
+
+func (r *RefHeader) String() (s string) {
+	s = ""
+	for {
+		if s != "" {
+			s += ", "
+		}
+		s += "{"
+		s += fmt.Sprintf("0x%x+%d, %d bytes", r.offset(), r.dataOffset, r.dataLen)
+		if f := r.Flags(); f != 0 {
+			s += ", " + f.String()
+		}
+		var ok bool
+		if _, ok = DmaIsValidOffset(uint(r.offset() + uint32(r.dataOffset))); !ok {
+			s += ", bad-offset"
+		}
+		s += "}"
+		if !ok {
+			break
+		}
+		if r = r.NextRef(); r == nil {
+			break
+		}
+	}
+	return
+}
+
+func (h *RefHeader) Validate() {
+	if !elib.Debug {
+		return
+	}
+	var err error
+	defer func() {
+		if err != nil {
+			panic(fmt.Errorf("%s %s", h, err))
+		}
+	}()
+	r := h
+	for {
+		if offset, ok := DmaIsValidOffset(uint(r.offset() + uint32(r.dataOffset))); !ok {
+			err = fmt.Errorf("bad dma offset: %x", offset)
+			return
+		}
+		if r = r.NextRef(); r == nil {
+			break
+		}
+	}
 }
 
 // Chains of buffer references.
 type RefChain struct {
 	// Number of bytes in chain.
-	len uint64
+	len   uint32
+	count uint32
 	// Head and tail buffer reference.
-	head Ref
-	tail RefHeader
+	head            Ref
+	tail, prev_tail *RefHeader
 }
 
-func (c *RefChain) Len() uint64 { return c.len }
-func (c *RefChain) Head() *Ref  { return &c.head }
-
-// Return buffer head and reset for later re-use.
-func (c *RefChain) Done() (h Ref) {
-	h = c.head
-	c.head = Ref{}
-	c.tail = RefHeader{}
-	return
-}
+func (c *RefChain) Head() *Ref          { return &c.head }
+func (c *RefChain) Len() uint           { return uint(c.len) }
+func (c *RefChain) addLen(r *RefHeader) { c.len += uint32(r.dataLen) }
 
 func (c *RefChain) Append(r *RefHeader) {
-	tail := r
-	if c.len == 0 {
-		c.len = uint64(r.dataLen)
-		c.head.RefHeader = *r
-		tail = &c.head.RefHeader
-	} else {
-		// Point current tail to given reference.
-		b := c.tail.GetBuffer()
-		b.nextRef = *r
-		c.head.setNextValid()
-		c.len += uint64(r.dataLen)
+	c.addLen(r)
+	if c.tail == nil {
+		c.tail = &c.head.RefHeader
 	}
+	*c.tail = *r
+	if c.prev_tail != nil {
+		c.prev_tail.setNextValid()
+	}
+	tail := r
 	for {
 		// End of chain for reference to be added?
 		if x := tail.NextRef(); x == nil {
-			c.tail = *tail
+			c.prev_tail, c.tail = c.tail, &tail.GetBuffer().nextRef
 			break
 		} else {
-			c.len += uint64(x.dataLen)
+			c.addLen(x)
 			tail = x
 		}
 	}
