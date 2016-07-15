@@ -208,6 +208,7 @@ func DmaOffset(b []byte) uint {
 	return uint(uintptr(unsafe.Pointer(&b[0])) - uintptr(unsafe.Pointer(&uioPciDma.data[0])))
 }
 func DmaGetOffset(o uint) unsafe.Pointer { return unsafe.Pointer(&uioPciDma.data[o]) }
+func DmaIsValidOffset(o uint) bool       { return o < uint(len(uioPciDma.data)) }
 
 // Returns caller physical address of given virtual address.
 // Physical address will be suitable for hardware DMA.

@@ -16,3 +16,4 @@ func DmaGet(id elib.Index) (b []byte)                             { return pci.D
 func DmaPhysAddress(a uintptr) uintptr                            { return pci.DmaPhysAddress(a) }
 func DmaOffset(b []byte) uint                                     { return pci.DmaOffset(b) }
 func DmaGetOffset(o uint) unsafe.Pointer                          { return pci.DmaGetOffset(o) }
+func DmaIsValidOffset(o uint) (uint, bool)                        { return o, pci.DmaIsValidOffset(o) }
