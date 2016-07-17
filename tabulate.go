@@ -74,22 +74,35 @@ func writeCenteredString(w *bufio.Writer, s string, align align, width int) {
 	}
 }
 
-func (t *table) Write(iw io.Writer) {
+func (c *col) enabled(colMap map[string]bool) bool {
+	if v, ok := colMap[c.name]; !ok || v {
+		return true
+	}
+	return false
+}
+
+func (t *table) WriteCols(iw io.Writer, colMap map[string]bool) {
 	w := bufio.NewWriter(iw)
 	for c := range t.cols {
-		writeCenteredString(w, t.cols[c].displayName(), t.cols[c].align, t.cols[c].getWidth())
+		if t.cols[c].enabled(colMap) {
+			writeCenteredString(w, t.cols[c].displayName(), t.cols[c].align, t.cols[c].getWidth())
+		}
 	}
 	w.WriteByte('\n')
 
 	for r := range t.rows {
 		for c := range t.rows[r].cols {
-			writeCenteredString(w, t.rows[r].cols[c], t.cols[c].align, t.cols[c].getWidth())
+			if t.cols[c].enabled(colMap) {
+				writeCenteredString(w, t.rows[r].cols[c], t.cols[c].align, t.cols[c].getWidth())
+			}
 		}
 		w.WriteByte('\n')
 	}
 	w.Flush()
 	return
 }
+
+func (t *table) Write(iw io.Writer) { t.WriteCols(iw, nil) }
 
 func Tabulate(x interface{}) (tab *table) {
 	v := reflect.ValueOf(x)
