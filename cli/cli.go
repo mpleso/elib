@@ -2,38 +2,23 @@ package cli
 
 import (
 	"github.com/platinasystems/elib/iomux"
-	"github.com/platinasystems/elib/scan"
+	"github.com/platinasystems/elib/parse"
 
 	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"unicode"
 )
 
 type Writer interface {
 	io.Writer
 }
 
-type Scanner struct {
-	scan.Scanner
-}
-
-const (
-	EOF        = scan.EOF
-	Ident      = scan.Ident
-	Int        = scan.Int
-	Float      = scan.Float
-	Char       = scan.Char
-	String     = scan.String
-	RawString  = scan.RawString
-	Comment    = scan.Comment
-	Whitespace = scan.Whitespace
-)
+type Input struct{ parse.Input }
 
 type Commander interface {
 	CliName() string
-	CliAction(w Writer, s *Scanner) error
+	CliAction(w Writer, in *Input) error
 }
 
 type Helper interface {
@@ -48,7 +33,7 @@ type LoopStarter interface {
 	CliLoopStart(m *Main)
 }
 
-type Action func(c Commander, w Writer, s *Scanner) (err error)
+type Action func(c Commander, w Writer, in *Input) (err error)
 
 type Command struct {
 	// Command name separated by space; alias by commas.
@@ -57,10 +42,10 @@ type Command struct {
 	Action
 }
 
-func (c *Command) CliName() string                            { return c.Name }
-func (c *Command) CliShortHelp() string                       { return c.ShortHelp }
-func (c *Command) CliHelp() string                            { return c.Help }
-func (c *Command) CliAction(w Writer, s *Scanner) (err error) { return c.Action(c, w, s) }
+func (c *Command) CliName() string                           { return c.Name }
+func (c *Command) CliShortHelp() string                      { return c.ShortHelp }
+func (c *Command) CliHelp() string                           { return c.Help }
+func (c *Command) CliAction(w Writer, in *Input) (err error) { return c.Action(c, w, in) }
 
 type command struct {
 	name  string
@@ -177,21 +162,15 @@ func (sub *subCommand) uniqueSubCommand(matching string) (*subCommand, bool) {
 	return c, ok
 }
 
-func (m *Main) lookup(s *Scanner) (Commander, error) {
-	sub := &m.rootCmd
-	var (
-		tok  rune
-		text string
-	)
-	for tok != scan.EOF {
-		tok, text = s.ScanSkipWhite()
-		switch tok {
-		case scan.Ident, '?':
-			break
-		default:
-			return nil, fmt.Errorf("%s: expecting ident; found '%s'", s.Pos(), text)
-		}
+var (
+	ErrAmbiguous = errors.New("ambiguous")
+	ParseError   = errors.New("parse error") // generic parse error
+)
 
+func (m *Main) lookup(in *Input) (Commander, error) {
+	sub := &m.rootCmd
+	for !in.End() {
+		text := in.Token()
 		name := normalizeName(text)
 
 		// Exact match for sub-command.
@@ -220,25 +199,15 @@ func (m *Main) lookup(s *Scanner) (Commander, error) {
 		return nil, fmt.Errorf("unknown: %s", name)
 	}
 
-	return nil, errors.New("ambiguous")
-}
-
-// As in text/scanner but allow - in identifier after first rune.
-func (s *Scanner) isIdentRune(ch rune, i int) (ok bool) {
-	ok = ch == '_' || unicode.IsLetter(ch)
-	if i > 0 {
-		ok = ok || ch == '-' || unicode.IsDigit(ch)
-	}
-	return
+	return nil, ErrAmbiguous
 }
 
 func (m *Main) Exec(w io.Writer, r io.Reader) error {
-	s := &Scanner{}
-	s.IsIdentRune = s.isIdentRune
-	s.Init(r)
-	c, err := m.lookup(s)
+	in := &Input{}
+	in.Init(r)
+	c, err := m.lookup(in)
 	if err == nil {
-		err = c.CliAction(w, s)
+		err = c.CliAction(w, in)
 	}
 	return err
 }

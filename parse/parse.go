@@ -1,0 +1,640 @@
+package parse
+
+import (
+	"github.com/platinasystems/elib"
+
+	"errors"
+	"fmt"
+	"io"
+	"reflect"
+	"unicode/utf8"
+)
+
+type save struct {
+	index int // Current buffer index
+}
+
+//go:generate gentemplate -d Package=parse -id save -d VecType=saveVec -d Type=save github.com/platinasystems/elib/vec.tmpl
+
+type Input struct {
+	r      io.Reader
+	sawEOF bool // read EOF or reader is nil.
+	buf    elib.ByteVec
+	save
+	saves saveVec
+	err   error
+}
+
+func (in *Input) Init(r io.Reader) { in.r = r }
+
+func (in *Input) Add(args ...string) {
+	s := ""
+	for i := range args {
+		if i > 0 {
+			s += " "
+		}
+		s += args[i]
+	}
+	in.buf = []byte(s)
+}
+
+func (in *Input) Save() uint {
+	i := in.saves.Len()
+	in.saves.Validate(i)
+	in.saves[i] = in.save
+	return i
+}
+
+func (in *Input) String() (s string) {
+	s = string(in.buf[in.index:])
+	const max = 32
+	if len(s) > max {
+		s = s[:max] + "..."
+	}
+	return
+}
+
+func (in *Input) restore(advance bool) {
+	i := in.saves.Len() - 1
+	if !advance {
+		in.save = in.saves[i]
+	}
+	in.saves = in.saves[:i]
+}
+
+func (in *Input) Advance() { in.restore(true) }
+func (in *Input) Restore() { in.restore(false) }
+
+func (in *Input) truncate() {
+	i, l := in.index, len(in.buf)
+	copy(in.buf[0:], in.buf[i:])
+	in.index = 0
+	in.buf = in.buf[:l-i]
+}
+
+var UnexpectedEOF = errors.New("unexpected end of input")
+
+func (in *Input) read() {
+	if in.r == nil {
+		in.sawEOF = true
+		return
+	}
+
+	if len(in.saves) == 0 {
+		in.truncate()
+	}
+
+	l := len(in.buf)
+	in.buf.Resize(4096)
+	n, err := in.r.Read(in.buf[l:])
+	in.sawEOF = err == io.EOF
+	in.buf = in.buf[:l+n]
+}
+
+func (in *Input) End() (end bool) {
+	for {
+		end = in.index >= len(in.buf)
+		if !end || in.sawEOF {
+			return
+		}
+		in.read()
+	}
+}
+
+func (in *Input) doRead(n int, must bool) (r []byte, ok bool) {
+	for in.index+n > len(in.buf) {
+		if in.sawEOF {
+			if must {
+				panic(UnexpectedEOF)
+			} else {
+				return
+			}
+		}
+		in.read()
+	}
+	i0 := in.index
+	i1 := i0 + n
+	r = in.buf[i0:i1]
+	in.index = i1
+	ok = true
+	return
+}
+
+func (in *Input) mustRead(n int) (r []byte)         { r, _ = in.doRead(n, true); return }
+func (in *Input) tryRead(n int) (r []byte, ok bool) { return in.doRead(n, false) }
+
+func (in *Input) mustReadByte() byte {
+	x := in.mustRead(1)
+	return x[0]
+}
+
+func (in *Input) fastByte() (b byte, ok bool) {
+	if ok = in.index < len(in.buf); ok {
+		b = in.buf[in.index]
+		in.index++
+	}
+	return
+}
+
+func (in *Input) ReadByte() byte {
+	if b, ok := in.fastByte(); ok {
+		return b
+	}
+	return in.mustReadByte()
+}
+
+var RuneError = errors.New("input rune error")
+
+func (in *Input) ReadRune() (r rune, size int) {
+	if b, ok := in.fastByte(); ok && b < utf8.RuneSelf {
+		r, size = rune(b), 1
+	} else {
+		var buf [utf8.UTFMax]byte
+		nByte := 0
+		if ok {
+			nByte = 1
+			buf[0] = b
+		}
+		for {
+			buf[nByte] = in.mustReadByte()
+			nByte++
+			if x := buf[:nByte]; utf8.FullRune(x) {
+				r, size = utf8.DecodeRune(x)
+				if r == utf8.RuneError {
+					panic(RuneError)
+				}
+				break
+			}
+		}
+	}
+	return
+}
+
+func (in *Input) Unread(size int) {
+	if elib.Debug && in.index < size {
+		panic("Unread")
+	}
+	in.index -= size
+}
+
+func (in *Input) Token() (s string) {
+	in.Save()
+	in.skipSpace()
+	i0 := in.index
+	for !in.End() {
+		r, size := in.ReadRune()
+		if isSpace(r) {
+			in.Unread(size)
+			break
+		}
+	}
+	i1 := in.index
+	ok := i1 > i0
+	if ok {
+		s = string(in.buf[i0:i1])
+	}
+	in.restore(ok)
+	return
+}
+
+// space is a copy of the unicode.White_Space ranges,
+// to avoid depending on package unicode.
+var space = [][2]uint16{
+	{0x0009, 0x000d}, // ascii \t\n\v\f\r
+	{0x0020, 0x0020}, // ascii space
+	{0x0085, 0x0085},
+	{0x00a0, 0x00a0},
+	{0x1680, 0x1680},
+	{0x2000, 0x200a},
+	{0x2028, 0x2029},
+	{0x202f, 0x202f},
+	{0x205f, 0x205f},
+	{0x3000, 0x3000},
+}
+
+func isSpace(r rune) bool {
+	if r >= 1<<16 {
+		return false
+	}
+	rx := uint16(r)
+	for _, rng := range space {
+		if rx < rng[0] {
+			return false
+		}
+		if rx <= rng[1] {
+			return true
+		}
+	}
+	return false
+}
+
+func (in *Input) skipSpace() (nSpace int) {
+	for !in.End() {
+		r, size := in.ReadRune()
+		if !isSpace(r) {
+			in.Unread(size)
+			break
+		}
+		nSpace++
+	}
+	return
+}
+
+func (in *Input) AtRune(r rune) (ok bool) {
+	rʹ, size := in.ReadRune()
+	if ok = rʹ == r; !ok {
+		in.Unread(size)
+	}
+	return
+}
+
+func (in *Input) At(s string) (ok bool) {
+	l := len(s)
+	var r []byte
+	if r, ok = in.tryRead(l); ok {
+		if ok = string(r) == s; !ok {
+			in.Unread(l)
+		}
+	}
+	return
+}
+
+func (in *Input) AtOneof(s string) (i int) {
+	rʹ, size := in.ReadRune()
+	l := len(s)
+	for i = 0; i < l; i++ {
+		if rʹ == rune(s[i]) {
+			return
+		}
+	}
+	in.Unread(size)
+	return
+}
+
+var IntegerOverflow = errors.New("integer overflow")
+
+func (in *Input) parseInt(base, bitSize int, signed bool) (x uint64, ok bool) {
+	in.Save()
+	nDigits := 0
+	negate := false
+	if signed {
+		negate = in.AtOneof("+-") == 1
+	}
+	for !in.End() {
+		r, size := in.ReadRune()
+		d := base
+		switch {
+		case r >= '0' && r <= '9':
+			d = int(r - '0')
+		case r >= 'a' && r <= 'f':
+			d = 10 + int(r-'a')
+		case r >= 'A' && r <= 'F':
+			d = 10 + int(r-'A')
+		}
+		if d >= base {
+			in.Unread(size)
+			break
+		}
+		xʹ := uint64(base)*x + uint64(d)
+		if xʹ < x {
+			panic(IntegerOverflow)
+		}
+		x = xʹ
+		nDigits++
+	}
+	ok = nDigits > 0
+	in.restore(ok)
+	if negate {
+		x = -x
+	}
+	if signed {
+		max := uint64(1 << uint(bitSize-1))
+		if !negate && x >= max || negate && x > max {
+			panic(IntegerOverflow)
+		}
+	} else if bitSize < 64 {
+		max := uint64(1 << uint(bitSize))
+		if x >= max {
+			panic(IntegerOverflow)
+		}
+	}
+	return
+}
+
+func (in *Input) ParseInt(base, bitSize int) (x int64, ok bool) {
+	var v uint64
+	v, ok = in.parseInt(base, bitSize, true)
+	x = int64(v)
+	return
+}
+
+func (in *Input) ParseUint(base, bitSize int) (x uint64, ok bool) {
+	x, ok = in.parseInt(base, bitSize, false)
+	return
+}
+
+var FloatOverflow = errors.New("floating point overflow")
+
+func (in *Input) ParseFloat() (x float64, ok bool) {
+	var (
+		n                       [2]uint64
+		nDigits                 [2]int
+		negate                  [2]bool
+		sawSign                 [2]bool
+		sawPoint                bool
+		i, nDigitsBeforeDecimal int
+	)
+	in.Save()
+	for !in.End() {
+		r, size := in.ReadRune()
+		done := false
+		switch r {
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			xʹ := 10*n[i] + uint64(r-'0')
+			if xʹ < n[i] {
+				panic(FloatOverflow)
+			}
+			n[i] = xʹ
+			nDigits[i]++
+		case '.':
+			if sawPoint || i != 0 { // second . or . after expon
+				done = true
+			} else if i == 0 {
+				sawPoint = true
+				nDigitsBeforeDecimal = nDigits[0]
+			}
+		case 'e', 'E':
+			if i == 0 {
+				i++
+			} else {
+				done = true // second eE
+			}
+		case '+', '-':
+			if !sawSign[i] {
+				sawSign[i] = true
+				negate[i] = r == '-'
+			} else {
+				done = true // second sign
+			}
+		default:
+			done = true // unknown rune
+		}
+		if done {
+			in.Unread(size)
+			break
+		}
+	}
+	ok = nDigits[0] > 0
+	in.restore(ok)
+	if ok {
+		// Apply sign
+		for i := range n {
+			if negate[i] {
+				n[i] = -n[i]
+			}
+		}
+		expon := int64(n[1])
+		frac := int64(n[0])
+		if sawPoint {
+			expon -= int64(nDigits[0] - nDigitsBeforeDecimal)
+		}
+		x = timesExpon(float64(frac), expon)
+	}
+	return
+}
+
+// Returns y = x 10^n
+func timesExpon(x float64, n int64) (y float64) {
+	var (
+		posPow10 = [8]float64{1e+0, 1e+1, 1e+2, 1e+3, 1e+4, 1e+5, 1e+6, 1e+7}
+		negPow10 = [8]float64{1e-0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7}
+	)
+	y = x
+	if n >= 0 {
+		for n >= 8 {
+			y *= 1e+8
+			n -= 8
+		}
+		y *= posPow10[n]
+	} else {
+		for n <= -8 {
+			y *= 1e-8
+			n += 8
+		}
+		y *= negPow10[-n]
+	}
+	return
+}
+
+var ErrPercentEnd = errors.New("missing verb: % at end of format string")
+var ErrMatch = errors.New("input does not match format")
+
+func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
+	ok = true
+	l := len(format)
+	if l == 0 {
+		return
+	}
+
+	// Number of matching format runes or percent verbs.
+	nMatch := 0
+	if in.Save() == 0 {
+		in.skipSpace()
+		in.err = nil
+		defer func() {
+			if e := recover(); e != nil {
+				ok = false
+				// Save away error and input context.
+				in.err = fmt.Errorf("%s: %s", e, in)
+				if nMatch > 0 {
+					panic(in.err)
+				}
+			}
+			in.restore(ok)
+		}()
+	}
+
+	as := Args(args)
+	for i := 0; i < l; {
+		fmtc, w := utf8.DecodeRuneInString(format[i:])
+		matchFormat := true
+		if fmtc == '%' {
+			if i+w >= l {
+				panic(ErrPercentEnd)
+			}
+			i += w
+			var verb rune
+			verb, w = utf8.DecodeRuneInString(format[i:])
+			if verb != '%' {
+				in.doPercent(verb, &as)
+				matchFormat = false
+			}
+		}
+
+		if matchFormat {
+			if isSpace(fmtc) {
+				in.skipSpace()
+			} else if r, _ := in.ReadRune(); r != fmtc {
+				ok = false
+				break
+			}
+		}
+		i += w
+		nMatch++
+	}
+	return
+}
+
+type Args []interface{}
+
+func (as *Args) Get() (a interface{}) {
+	a = (*as)[0]
+	*as = (*as)[1:]
+	return
+}
+
+func (args *Args) SetNextInt(v uint64) {
+	arg := args.Get()
+	switch a := arg.(type) {
+	case *int:
+		*a = int(v)
+	case *uint:
+		*a = uint(v)
+	case *int8:
+		*a = int8(v)
+	case *int16:
+		*a = int16(v)
+	case *int32:
+		*a = int32(v)
+	case *int64:
+		*a = int64(v)
+	case *uint8:
+		*a = uint8(v)
+	case *uint16:
+		*a = uint16(v)
+	case *uint32:
+		*a = uint32(v)
+	case *uint64:
+		*a = uint64(v)
+	default:
+		panic(fmt.Errorf("unknown type: %T", arg))
+	}
+}
+
+var (
+	intBits     = reflect.TypeOf(0).Bits()
+	uintptrBits = reflect.TypeOf(uintptr(0)).Bits()
+)
+
+type Parser interface {
+	Parse(in *Input)
+}
+type ParserWithArgs interface {
+	ParseWithArgs(in *Input, args *Args)
+}
+
+func (in *Input) doParser(p Parser, pa ParserWithArgs, args *Args) {
+	in.Save()
+	defer func() {
+		e := recover()
+		ok := e == nil
+		in.restore(ok)
+		if !ok {
+			panic(e)
+		}
+	}()
+	if p != nil {
+		p.Parse(in)
+	} else {
+		pa.ParseWithArgs(in, args)
+	}
+}
+
+func (in *Input) doPercent(verb rune, args *Args) {
+	arg := args.Get()
+
+	if p, ok := arg.(Parser); ok {
+		in.doParser(p, nil, args)
+		return
+	} else if pa, ok := arg.(ParserWithArgs); ok {
+		in.doParser(nil, pa, args)
+		return
+	}
+
+	switch v := arg.(type) {
+	case *int:
+		*v = int(in.doInt(verb, intBits, true))
+	case *uint:
+		*v = uint(in.doInt(verb, intBits, false))
+	case *int8:
+		*v = int8(in.doInt(verb, 8, true))
+	case *uint8:
+		*v = uint8(in.doInt(verb, 8, false))
+	case *int16:
+		*v = int16(in.doInt(verb, 16, true))
+	case *uint16:
+		*v = uint16(in.doInt(verb, 16, false))
+	case *int32:
+		*v = int32(in.doInt(verb, 32, true))
+	case *uint32:
+		*v = uint32(in.doInt(verb, 32, false))
+	case *int64:
+		*v = int64(in.doInt(verb, 64, true))
+	case *uint64:
+		*v = uint64(in.doInt(verb, 64, false))
+	case *float64:
+		*v = float64(in.doFloat(verb))
+	case *float32:
+		*v = float32(in.doFloat(verb))
+	default:
+		panic(fmt.Errorf("unknown type: %T", arg))
+	}
+}
+
+var (
+	ErrVerb  = errors.New("illegal verb after %")
+	ErrInt   = errors.New("expected integer")
+	ErrFloat = errors.New("expected float")
+	ErrInput = errors.New("invalid input")
+)
+
+func (in *Input) doInt(verb rune, bitSize int, signed bool) uint64 {
+	base := 10
+	switch verb {
+	case 'v':
+		if in.At("0") {
+			base = 8 // 0DDD => octal
+			if in.At("x") {
+				base = 16 // 0xDDD => hex
+			}
+		}
+	case 'd':
+		base = 10
+	case 'b':
+		base = 2
+	case 'o':
+		base = 8
+	case 'x', 'X':
+		base = 16
+	default:
+		panic(ErrVerb)
+	}
+	if x, ok := in.parseInt(base, bitSize, signed); !ok {
+		panic(ErrInt)
+	} else {
+		return x
+	}
+}
+
+func (in *Input) doFloat(verb rune) float64 {
+	switch verb {
+	case 'f':
+	default:
+		panic(ErrVerb)
+	}
+	if x, ok := in.ParseFloat(); !ok {
+		panic(ErrFloat)
+	} else {
+		return x
+	}
+}

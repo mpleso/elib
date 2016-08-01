@@ -69,7 +69,7 @@ func (ns rtNodes) Less(i, j int) bool { return ns[i].Name < ns[j].Name }
 func (ns rtNodes) Swap(i, j int)      { ns[i], ns[j] = ns[j], ns[i] }
 func (ns rtNodes) Len() int           { return len(ns) }
 
-func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
+func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
 	ns := rtNodes{}
 	for i := range l.DataNodes {
 		n := l.DataNodes[i].GetNode()
@@ -117,7 +117,7 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (
 	return
 }
 
-func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
+func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
 	l.activePollerPool.Foreach(func(a *activePoller) {
 		a.pollerStats.clear()
 		for j := range a.activeNodes {
@@ -128,13 +128,13 @@ func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, s *cli.Scanner) 
 	return
 }
 
-func (l *Loop) showEventLog(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
+func (l *Loop) showEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
 	v := elog.NewView()
 	v.Print(w)
 	return
 }
 
-func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, s *cli.Scanner) (err error) {
+func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
 	elog.Clear()
 	return
 }
