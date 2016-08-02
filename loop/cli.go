@@ -17,13 +17,6 @@ type LoopCli struct {
 
 func (l *Loop) CliAdd(c *cli.Command) { l.cli.AddCommand(c) }
 
-func init() {
-	AddInit(func(l *Loop) {
-		l.RegisterEventPoller(iomux.Default)
-		l.RegisterNode(&l.cli, "loop-cli")
-	})
-}
-
 type fileEvent struct {
 	loop *Loop
 	*cli.File
@@ -139,27 +132,27 @@ func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err 
 	return
 }
 
-func init() {
-	AddInit(func(l *Loop) {
-		l.cli.AddCommand(&cli.Command{
-			Name:      "show runtime",
-			ShortHelp: "show main loop runtime statistics",
-			Action:    l.showRuntimeStats,
-		})
-		l.cli.AddCommand(&cli.Command{
-			Name:      "clear runtime",
-			ShortHelp: "clear main loop runtime statistics",
-			Action:    l.clearRuntimeStats,
-		})
-		l.cli.AddCommand(&cli.Command{
-			Name:      "show event-log",
-			ShortHelp: "show events in event log",
-			Action:    l.showEventLog,
-		})
-		l.cli.AddCommand(&cli.Command{
-			Name:      "clear event-log",
-			ShortHelp: "clear events in event log",
-			Action:    l.clearEventLog,
-		})
+func (l *Loop) cliInit() {
+	l.RegisterEventPoller(iomux.Default)
+	l.RegisterNode(&l.cli, "loop-cli")
+	l.cli.AddCommand(&cli.Command{
+		Name:      "show runtime",
+		ShortHelp: "show main loop runtime statistics",
+		Action:    l.showRuntimeStats,
+	})
+	l.cli.AddCommand(&cli.Command{
+		Name:      "clear runtime",
+		ShortHelp: "clear main loop runtime statistics",
+		Action:    l.clearRuntimeStats,
+	})
+	l.cli.AddCommand(&cli.Command{
+		Name:      "show event-log",
+		ShortHelp: "show events in event log",
+		Action:    l.showEventLog,
+	})
+	l.cli.AddCommand(&cli.Command{
+		Name:      "clear event-log",
+		ShortHelp: "clear events in event log",
+		Action:    l.clearEventLog,
 	})
 }
