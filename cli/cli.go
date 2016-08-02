@@ -71,6 +71,7 @@ type fileIndex uint
 //go:generate gentemplate -d Package=cli -id file -d Data=Files -d PoolType=FilePool -d Type=File github.com/platinasystems/elib/pool.tmpl
 
 type Main struct {
+	in Input
 	// Root of command tree.
 	rootCmd subCommand
 	allCmds map[string]Commander
@@ -167,8 +168,9 @@ var (
 	ParseError   = errors.New("parse error") // generic parse error
 )
 
-func (m *Main) lookup(in *Input) (Commander, error) {
+func (m *Main) lookup() (Commander, error) {
 	sub := &m.rootCmd
+	in := &m.in
 	for !in.End() {
 		text := in.Token()
 		name := normalizeName(text)
@@ -202,14 +204,20 @@ func (m *Main) lookup(in *Input) (Commander, error) {
 	return nil, ErrAmbiguous
 }
 
-func (m *Main) Exec(w io.Writer, r io.Reader) error {
-	in := &Input{}
+func (m *Main) Exec(w io.Writer, r io.Reader) (err error) {
+	in := &m.in
 	in.Init(r)
-	c, err := m.lookup(in)
+	var c Commander
+	c, err = m.lookup()
 	if err == nil {
+		defer func() {
+			if e := recover(); e != nil {
+				err = fmt.Errorf("%s: %s `%s'", c.CliName(), e.(error), in)
+			}
+		}()
 		err = c.CliAction(w, in)
 	}
-	return err
+	return
 }
 
 var Default = &Main{
