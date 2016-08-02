@@ -28,9 +28,9 @@ type Input struct {
 func (in *Input) Init(r io.Reader) { in.r = r }
 
 func (in *Input) Add(args ...string) {
-	s := ""
+	s := string(in.buf)
 	for i := range args {
-		if i > 0 {
+		if len(s) > 0 {
 			s += " "
 		}
 		s += args[i]
@@ -429,6 +429,8 @@ func timesExpon(x float64, n int64) (y float64) {
 var ErrPercentEnd = errors.New("missing verb: % at end of format string")
 var ErrMatch = errors.New("input does not match format")
 
+func (in *Input) Error() error { return in.err }
+
 func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 	ok = true
 	l := len(format)
@@ -562,6 +564,8 @@ func (in *Input) doPercent(verb rune, args *Args) {
 	}
 
 	switch v := arg.(type) {
+	case *bool:
+		*v = in.doBool(verb)
 	case *int:
 		*v = int(in.doInt(verb, intBits, true))
 	case *uint:
@@ -586,8 +590,27 @@ func (in *Input) doPercent(verb rune, args *Args) {
 		*v = float64(in.doFloat(verb))
 	case *float32:
 		*v = float32(in.doFloat(verb))
+	case *string:
+		*v = string(in.doString(verb))
 	default:
-		panic(fmt.Errorf("unknown type: %T", arg))
+		val := reflect.ValueOf(v)
+		ptr := val
+		if ptr.Kind() != reflect.Ptr {
+			panic(fmt.Errorf("type not a pointer: " + val.Type().String()))
+			return
+		}
+		switch v := ptr.Elem(); v.Kind() {
+		case reflect.Bool:
+			v.SetBool(in.doBool(verb))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			v.SetInt(int64(in.doInt(verb, v.Type().Bits(), true)))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			v.SetUint(in.doInt(verb, v.Type().Bits(), false))
+		case reflect.String:
+			v.SetString(in.doString(verb))
+		default:
+			panic(fmt.Errorf("can't scan type: " + val.Type().String()))
+		}
 	}
 }
 
@@ -597,6 +620,16 @@ var (
 	ErrFloat = errors.New("expected float")
 	ErrInput = errors.New("invalid input")
 )
+
+func (in *Input) doBool(verb rune) (v bool) {
+	in.skipSpace()
+	if i := in.AtOneof("01ftFT"); i < 6 {
+		v = i%2 != 0
+	} else {
+		panic(ErrInput)
+	}
+	return
+}
 
 func (in *Input) doInt(verb rune, bitSize int, signed bool) uint64 {
 	base := 10
@@ -637,4 +670,76 @@ func (in *Input) doFloat(verb rune) float64 {
 	} else {
 		return x
 	}
+}
+
+// parseString parses delimited string.  If string starts with { then string
+// is delimited by balenced parenthesis.  Otherwise, string is delimited by white space.
+func (in *Input) parseString(delimiter rune) (s string) {
+	switch delimiter {
+	case '%', ' ', '\t':
+		delimiter = 0
+	}
+	in.skipSpace()
+	in.Save()
+	backslash := false
+	is_paren_delimited := false
+	paren := 0
+loop:
+	for !in.End() {
+		r, size := in.ReadRune()
+		add := true
+		if backslash {
+			backslash = false
+		} else if isSpace(r) {
+			if !is_paren_delimited {
+				in.Unread(size)
+				break loop
+			}
+		} else {
+			switch r {
+			case '\\':
+				backslash = true
+				add = false
+			case '{':
+				if paren == 0 && len(s) == 0 {
+					is_paren_delimited = true
+					add = false
+				}
+				paren++
+			case '}':
+				paren--
+				if is_paren_delimited && paren == 0 {
+					break loop
+				}
+			default:
+				if !is_paren_delimited && r == delimiter {
+					in.Unread(size)
+					break loop
+				}
+			}
+		}
+		if add {
+			var x [utf8.MaxRune]byte
+			utf8.EncodeRune(x[:], r)
+			s += string(x[:size])
+		}
+	}
+	ok := paren == 0
+	in.restore(ok)
+	if !ok {
+		panic(ErrInput)
+	}
+	return
+}
+
+func (in *Input) doString(verb rune) (s string) {
+	switch verb {
+	case 's':
+		s = in.Token()
+	case 'v':
+		s = in.parseString(' ')
+	default:
+		panic(ErrVerb)
+	}
+	return
 }
