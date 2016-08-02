@@ -238,8 +238,9 @@ func (l *Loop) doEventWait() (quit *quitEvent) {
 	return
 }
 
-func (l *Loop) doEvents() (quit *quitEvent) {
+func (l *Loop) doEvents() (quitLoop bool) {
 	// Handle discrete events.
+	var quit *quitEvent
 	if l.nActivePollers > 0 {
 		quit = l.doEventNoWait()
 	} else {
@@ -248,6 +249,7 @@ func (l *Loop) doEvents() (quit *quitEvent) {
 		l.eventWaiting = false
 	}
 	if quit != nil {
+		quitLoop = quit.Type == quitEventExit
 		return
 	}
 
@@ -446,6 +448,7 @@ func (l *Loop) Run() {
 
 	l.timerInit()
 	l.startTime = cpu.TimeNow()
+	l.cliInit()
 	l.callInitHooks()
 	l.eventInit()
 	l.startPollers()
@@ -453,7 +456,7 @@ func (l *Loop) Run() {
 	l.doInitNodes()
 	l.nodeGraphInit()
 	for {
-		if quit := l.doEvents(); quit != nil && quit.Type == quitEventExit {
+		if quit := l.doEvents(); quit {
 			break
 		}
 		l.doPollers()
