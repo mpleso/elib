@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -18,14 +20,21 @@ type save struct {
 
 type Input struct {
 	r      io.Reader
-	sawEOF bool // read EOF or reader is nil.
+	sawEnd bool // read EOF or reader is nil.
 	buf    elib.ByteVec
 	save
 	saves saveVec
 	err   error
 }
 
-func (in *Input) Init(r io.Reader) { in.r = r }
+func (in *Input) Init(r io.Reader) {
+	in.r = r
+	in.index = 0
+	in.sawEnd = false
+	if in.buf != nil {
+		in.buf = in.buf[:0]
+	}
+}
 
 func (in *Input) Add(args ...string) {
 	s := string(in.buf)
@@ -46,7 +55,7 @@ func (in *Input) Save() uint {
 }
 
 func (in *Input) String() (s string) {
-	s = string(in.buf[in.index:])
+	s = strings.TrimSpace(string(in.buf[in.index:]))
 	const max = 32
 	if len(s) > max {
 		s = s[:max] + "..."
@@ -76,7 +85,7 @@ var UnexpectedEOF = errors.New("unexpected end of input")
 
 func (in *Input) read() {
 	if in.r == nil {
-		in.sawEOF = true
+		in.sawEnd = true
 		return
 	}
 
@@ -87,14 +96,14 @@ func (in *Input) read() {
 	l := len(in.buf)
 	in.buf.Resize(4096)
 	n, err := in.r.Read(in.buf[l:])
-	in.sawEOF = err == io.EOF
+	in.sawEnd = err == io.EOF
 	in.buf = in.buf[:l+n]
 }
 
 func (in *Input) End() (end bool) {
 	for {
 		end = in.index >= len(in.buf)
-		if !end || in.sawEOF {
+		if !end || in.sawEnd {
 			return
 		}
 		in.read()
@@ -103,7 +112,7 @@ func (in *Input) End() (end bool) {
 
 func (in *Input) doRead(n int, must bool) (r []byte, ok bool) {
 	for in.index+n > len(in.buf) {
-		if in.sawEOF {
+		if in.sawEnd {
 			if must {
 				panic(UnexpectedEOF)
 			} else {
@@ -197,36 +206,7 @@ func (in *Input) Token() (s string) {
 	return
 }
 
-// space is a copy of the unicode.White_Space ranges,
-// to avoid depending on package unicode.
-var space = [][2]uint16{
-	{0x0009, 0x000d}, // ascii \t\n\v\f\r
-	{0x0020, 0x0020}, // ascii space
-	{0x0085, 0x0085},
-	{0x00a0, 0x00a0},
-	{0x1680, 0x1680},
-	{0x2000, 0x200a},
-	{0x2028, 0x2029},
-	{0x202f, 0x202f},
-	{0x205f, 0x205f},
-	{0x3000, 0x3000},
-}
-
-func isSpace(r rune) bool {
-	if r >= 1<<16 {
-		return false
-	}
-	rx := uint16(r)
-	for _, rng := range space {
-		if rx < rng[0] {
-			return false
-		}
-		if rx <= rng[1] {
-			return true
-		}
-	}
-	return false
-}
+func isSpace(r rune) bool { return unicode.IsSpace(r) }
 
 func (in *Input) skipSpace() (nSpace int) {
 	for !in.End() {
@@ -438,25 +418,22 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 		return
 	}
 
-	// Number of matching format runes or percent verbs.
-	nMatch := 0
+	// Only skip space on top-level calls.
 	if in.Save() == 0 {
 		in.skipSpace()
-		in.err = nil
-		defer func() {
-			if e := recover(); e != nil {
-				ok = false
-				// Save away error and input context.
-				in.err = fmt.Errorf("%s: %s", e, in)
-				if nMatch > 0 {
-					panic(in.err)
-				}
-			}
-			in.restore(ok)
-		}()
 	}
+	in.err = nil
+	defer func() {
+		if e := recover(); e != nil {
+			ok = false
+			// Save away error and input context.
+			in.err = fmt.Errorf("%s: %s", e, in)
+		}
+		in.restore(ok)
+	}()
 
 	as := Args(args)
+	matchOptional := false
 	for i := 0; i < l; {
 		fmtc, w := utf8.DecodeRuneInString(format[i:])
 		matchFormat := true
@@ -467,7 +444,14 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 			i += w
 			var verb rune
 			verb, w = utf8.DecodeRuneInString(format[i:])
-			if verb != '%' {
+			switch verb {
+			case '%':
+				// %% -> match % in input
+			case '*':
+				// %* -> remaining format letters are optional
+				matchOptional = true
+				matchFormat = false
+			default:
 				in.doPercent(verb, &as)
 				matchFormat = false
 			}
@@ -476,14 +460,31 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 		if matchFormat {
 			if isSpace(fmtc) {
 				in.skipSpace()
-			} else if r, _ := in.ReadRune(); r != fmtc {
-				ok = false
-				break
+				matchOptional = false // space or non-letter ends optional
+			} else if matchOptional && in.End() {
+				// Advance past optional
+			} else if r, size := in.ReadRune(); r != fmtc {
+				if matchOptional && !unicode.IsLetter(r) {
+					in.Unread(size)
+				} else {
+					ok = false
+					break
+				}
 			}
 		}
 		i += w
-		nMatch++
 	}
+
+	// For optional match make sure input terminates with non-letter.
+	// This handles the case of format "f%*oo" which should not match input "food" but
+	// should match "foo!".
+	if ok && matchOptional && !in.End() {
+		r, size := in.ReadRune()
+		if ok = !unicode.IsLetter(r); ok {
+			in.Unread(size)
+		}
+	}
+
 	return
 }
 
