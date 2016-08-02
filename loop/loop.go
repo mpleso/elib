@@ -592,11 +592,11 @@ func (l *Loop) RegisterNode(n Noder, format string, args ...interface{}) {
 			}
 			nok++
 		}
-		if nok > 0 {
-			l.addDataNode(n)
-		} else {
-			panic(fmt.Errorf("%s: missing LoopInput/LoopInputOutput method", x.name))
+		if nok == 0 {
+			// Accept output only node.
+			nok = 1
 		}
+		l.addDataNode(n)
 		nOK += nok
 	} else if _, isIn := n.(inNoder); isIn {
 		if _, ok := n.(outLooper); ok {
