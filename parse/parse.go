@@ -448,7 +448,7 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 			case '%':
 				// %% -> match % in input
 			case '*':
-				// %* -> remaining format letters are optional
+				// %* -> letter characters in format up to next non-letter or end are optional.
 				matchOptional = true
 				matchFormat = false
 			default:
@@ -458,11 +458,15 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 		}
 
 		if matchFormat {
+			// Any non-letter in format string ends optional match.
+			if matchOptional {
+				matchOptional = unicode.IsLetter(fmtc)
+			}
+
 			if isSpace(fmtc) {
 				in.skipSpace()
-				matchOptional = false // space or non-letter ends optional
 			} else if matchOptional && in.End() {
-				// Advance past optional
+				// Advance past optional format characters with no input.
 			} else if r, size := in.ReadRune(); r != fmtc {
 				if matchOptional && !unicode.IsLetter(r) {
 					in.Unread(size)
