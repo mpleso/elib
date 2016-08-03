@@ -42,7 +42,7 @@ func (in *Input) Add(args ...string) {
 		if len(s) > 0 {
 			s += " "
 		}
-		s += args[i]
+		s += strings.TrimSpace(args[i])
 	}
 	in.buf = []byte(s)
 }
@@ -418,10 +418,8 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 		return
 	}
 
-	// Only skip space on top-level calls.
-	if in.Save() == 0 {
-		in.skipSpace()
-	}
+	in.Save()
+	in.skipSpace()
 	in.err = nil
 	defer func() {
 		if e := recover(); e != nil {
@@ -434,6 +432,7 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 
 	as := Args(args)
 	matchOptional := false
+	skippedSpace := false
 	for i := 0; i < l; {
 		fmtc, w := utf8.DecodeRuneInString(format[i:])
 		matchFormat := true
@@ -457,14 +456,19 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 			}
 		}
 
+		fmtcSpace := isSpace(fmtc)
 		if matchFormat {
 			// Any non-letter in format string ends optional match.
 			if matchOptional {
 				matchOptional = unicode.IsLetter(fmtc)
 			}
 
-			if isSpace(fmtc) {
-				in.skipSpace()
+			if fmtcSpace {
+				if !skippedSpace {
+					if ok = in.skipSpace() > 0; !ok {
+						break
+					}
+				}
 			} else if matchOptional && in.End() {
 				// Advance past optional format characters with no input.
 			} else if r, size := in.ReadRune(); r != fmtc {
@@ -476,6 +480,7 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 				}
 			}
 		}
+		skippedSpace = fmtcSpace
 		i += w
 	}
 
@@ -540,7 +545,7 @@ type ParserWithArgs interface {
 	ParseWithArgs(in *Input, args *Args)
 }
 
-func (in *Input) doParser(p Parser, pa ParserWithArgs, args *Args) {
+func (in *Input) doParser(verb rune, p Parser, pa ParserWithArgs, args *Args) {
 	in.Save()
 	defer func() {
 		e := recover()
@@ -561,10 +566,10 @@ func (in *Input) doPercent(verb rune, args *Args) {
 	arg := args.Get()
 
 	if p, ok := arg.(Parser); ok {
-		in.doParser(p, nil, args)
+		in.doParser(verb, p, nil, args)
 		return
 	} else if pa, ok := arg.(ParserWithArgs); ok {
-		in.doParser(nil, pa, args)
+		in.doParser(verb, nil, pa, args)
 		return
 	}
 
@@ -597,6 +602,8 @@ func (in *Input) doPercent(verb rune, args *Args) {
 		*v = float32(in.doFloat(verb))
 	case *string:
 		*v = string(in.doString(verb))
+	case *Input:
+		v.Add(string(in.doString(verb)))
 	default:
 		val := reflect.ValueOf(v)
 		ptr := val
@@ -614,7 +621,7 @@ func (in *Input) doPercent(verb rune, args *Args) {
 		case reflect.String:
 			v.SetString(in.doString(verb))
 		default:
-			panic(fmt.Errorf("can't scan type: " + val.Type().String()))
+			panic(fmt.Errorf("can't parse type: " + val.Type().String()))
 		}
 	}
 }
