@@ -55,7 +55,15 @@ func tst(err error, tag string) error {
 func (s *socket) Close() (err error) {
 	s.txBufLock.Lock()
 	defer s.txBufLock.Unlock()
-	iomux.Del(s)
+
+	// For unix listen sockets remove socket file on close.
+	if s.flags&Listen != 0 {
+		switch v := s.SelfAddr.(type) {
+		case *syscall.SockaddrUnix:
+			syscall.Unlink(v.Name)
+		}
+	}
+
 	err = syscall.Close(s.Fd)
 	if err != nil {
 		err = fmt.Errorf("close: %s", err)
@@ -94,6 +102,7 @@ func (s *socket) ReadReady() (err error) {
 	}
 
 	if n == 0 {
+		iomux.Del(s)
 		s.Close()
 	}
 	return
@@ -237,8 +246,10 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 	var sa syscall.Sockaddr
 
 	/* Anything that begins with a / is a local Unix file socket. */
+	af := syscall.AF_INET
 	if cfg[0] == '/' {
 		sa = &syscall.SockaddrUnix{Name: cfg}
+		af = syscall.AF_UNIX
 	} else {
 		var a Ip4Socket
 		if _, err = fmt.Sscanf(cfg, "%s", &a); err == nil {
@@ -256,18 +267,25 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 	if flags&UDP != 0 {
 		kind = syscall.SOCK_DGRAM
 	}
-	s.Fd, err = syscall.Socket(syscall.AF_INET, kind, 0)
+	s.Fd, err = syscall.Socket(af, kind, 0)
 	if err = tst(err, "socket"); err != nil {
 		return
 	}
+	defer func() {
+		if err != nil {
+			s.Close()
+		}
+	}()
 
-	nodelay := 1
-	if flags&TCPDelay != 0 {
-		nodelay = 0
-	}
-	err = syscall.SetsockoptInt(s.Fd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, nodelay)
-	if err = tst(err, "setsockopt TCP_NODELAY"); err != nil {
-		goto out
+	if af != syscall.AF_UNIX {
+		nodelay := 1
+		if flags&TCPDelay != 0 {
+			nodelay = 0
+		}
+		err = syscall.SetsockoptInt(s.Fd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, nodelay)
+		if err = tst(err, "setsockopt TCP_NODELAY"); err != nil {
+			return
+		}
 	}
 
 	if flags&Listen != 0 {
@@ -277,7 +295,7 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 			if IpPort(v.Port) == NilIpPort {
 				v.Port, err = s.bindFreePort(v.Addr[:])
 				if err != nil {
-					goto out
+					return
 				}
 				needBind = false
 			}
@@ -289,19 +307,19 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 
 		err = syscall.SetsockoptInt(s.Fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 		if err = tst(err, "setsockopt SO_REUSEADDR"); err != nil {
-			goto out
+			return
 		}
 
 		if needBind {
 			err = syscall.Bind(s.Fd, sa)
 			if err = tst(err, "bind"); err != nil {
-				goto out
+				return
 			}
 		}
 
 		err = syscall.Listen(s.Fd, syscall.SOMAXCONN)
 		if err = tst(err, "listen"); err != nil {
-			goto out
+			return
 		}
 
 		s.SelfAddr = sa
@@ -310,21 +328,17 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 
 		err = syscall.Connect(s.Fd, sa)
 		if err = tst(err, "connect"); err != nil {
-			goto out
+			return
 		}
 
 		s.SelfAddr, err = syscall.Getsockname(s.Fd)
 		if err = tst(err, "getsockname"); err != nil {
-			goto out
+			return
 		}
 		flags |= ConnectInProgress
 	}
 
 	s.flags = flags
-	return
-
-out:
-	s.Close()
 	return
 }
 
