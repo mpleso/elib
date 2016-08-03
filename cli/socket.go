@@ -8,17 +8,18 @@ import (
 	"sync"
 )
 
-type server struct {
+type Server struct {
 	main *Main
 	socket.Server
-	socketConfig string
-	verbose      bool
+	socketConfig  string
+	verbose       bool
+	disablePrompt bool
 	// Locks client pool.
 	lock sync.Mutex
 	clientPool
 }
 
-func (s *server) ReadReady() (err error) {
+func (s *Server) ReadReady() (err error) {
 	template := client{}
 	err = s.AcceptClient(&template.Client)
 	if err != nil {
@@ -37,14 +38,14 @@ func (s *server) ReadReady() (err error) {
 }
 
 type client struct {
-	server *server
+	server *Server
 	socket.Client
 	index uint
 }
 
 //go:generate gentemplate -d Package=cli -id client -d Data=clients -d PoolType=clientPool -d Type=client github.com/platinasystems/elib/pool.tmpl
 
-func (s *server) newClient(template *client, socketConfig string) (i uint, err error) {
+func (s *Server) newClient(template *client, socketConfig string) (i uint, err error) {
 	s.lock.Lock()
 	i = s.clientPool.GetIndex()
 	c := &s.clients[i]
@@ -57,7 +58,7 @@ func (s *server) newClient(template *client, socketConfig string) (i uint, err e
 			return
 		}
 	}
-	c.server.main.AddFile(c)
+	c.server.main.AddFile(c, s.disablePrompt)
 	return
 }
 
@@ -91,13 +92,16 @@ func (c *client) Close() (err error) {
 	return
 }
 
-func (c *Main) AddServer(config string) {
-	svr := &server{main: c}
-	err := svr.Config(config, socket.Listen)
-	if err != nil {
-		panic(err)
+func (c *Main) AddServer(config string, disablePrompt ...bool) (s *Server, err error) {
+	s = &Server{main: c}
+	if len(disablePrompt) > 0 {
+		s.disablePrompt = disablePrompt[0]
 	}
-	iomux.Add(svr)
-	c.servers = append(c.servers, svr)
+	err = s.Config(config, socket.Listen)
+	if err != nil {
+		return
+	}
+	iomux.Add(s)
+	c.servers = append(c.servers, s)
 	return
 }

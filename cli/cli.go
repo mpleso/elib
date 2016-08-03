@@ -61,8 +61,9 @@ type subCommand struct {
 func (c *subCommand) Elts() int { return len(c.cmds) + len(c.subs) }
 
 type File struct {
-	main      *Main
-	poolIndex fileIndex
+	main          *Main
+	disablePrompt bool
+	poolIndex     fileIndex
 	iomux.FileReadWriteCloser
 }
 
@@ -78,7 +79,7 @@ type Main struct {
 	Prompt  string
 	RxReady func(c *File)
 	FilePool
-	servers []*server
+	servers []*Server
 }
 
 func normalizeName(n string) string { return strings.ToLower(n) }
@@ -227,5 +228,4 @@ var Default = &Main{
 func (c *Main) Add(name string, action Action) { c.AddCommand(&Command{Name: name, Action: action}) }
 
 func AddCommand(c Commander)              { Default.AddCommand(c) }
-func _Add(name string, action Action)     { Default.Add(name, action) }
 func Exec(w io.Writer, r io.Reader) error { return Default.Exec(w, r) }

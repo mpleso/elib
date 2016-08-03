@@ -17,7 +17,7 @@ func (c *File) ReadReady() (err error) {
 }
 
 func (c *File) writePrompt() {
-	if l := len(c.main.Prompt); l > 0 {
+	if l := len(c.main.Prompt); !c.disablePrompt && l > 0 {
 		c.Write([]byte(c.main.Prompt))
 	}
 }
@@ -54,13 +54,16 @@ func (c *File) RxReady() (err error) {
 	return
 }
 
-func (c *Main) AddFile(f iomux.FileReadWriteCloser) {
+func (c *Main) AddFile(f iomux.FileReadWriteCloser, disablePrompt ...bool) {
 	i := c.FilePool.GetIndex()
 	x := &c.Files[i]
 	*x = File{
 		main:                c,
 		FileReadWriteCloser: f,
 		poolIndex:           fileIndex(i),
+	}
+	if len(disablePrompt) > 0 {
+		x.disablePrompt = disablePrompt[0]
 	}
 	iomux.Add(x)
 	x.writePrompt()
@@ -78,6 +81,11 @@ func (f *File) isStdin() bool {
 }
 
 func (m *Main) Write(p []byte) (n int, err error) {
+	if len(m.FilePool.Files) == 0 {
+		n, err = syscall.Write(syscall.Stderr, p)
+		return
+	}
+
 	for i := range m.FilePool.Files {
 		if !m.FilePool.IsFree(uint(i)) {
 			n, err = m.FilePool.Files[i].Write(p)
