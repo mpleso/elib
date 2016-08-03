@@ -449,10 +449,10 @@ func (l *Loop) Run() {
 	l.timerInit()
 	l.startTime = cpu.TimeNow()
 	l.cliInit()
-	l.callInitHooks()
 	l.eventInit()
 	l.startPollers()
 	l.registrationsNeedStart = true
+	l.callInitHooks()
 	l.doInitNodes()
 	l.nodeGraphInit()
 	for {
