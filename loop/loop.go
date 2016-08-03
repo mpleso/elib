@@ -127,7 +127,7 @@ type Loop struct {
 	secsPerCycle           float64
 	timeDurationPerCycle   float64
 
-	cli LoopCli
+	Cli LoopCli
 }
 
 func (l *Loop) Seconds(t cpu.Time) float64 { return float64(t) * l.secsPerCycle }

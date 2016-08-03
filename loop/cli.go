@@ -15,7 +15,7 @@ type LoopCli struct {
 	Node
 }
 
-func (l *Loop) CliAdd(c *cli.Command) { l.cli.AddCommand(c) }
+func (l *Loop) CliAdd(c *cli.Command) { l.Cli.AddCommand(c) }
 
 type fileEvent struct {
 	loop *Loop
@@ -23,7 +23,7 @@ type fileEvent struct {
 }
 
 func (l *Loop) rxReady(f *cli.File) {
-	l.AddEvent(&fileEvent{loop: l, File: f}, &l.cli)
+	l.AddEvent(&fileEvent{loop: l, File: f}, &l.Cli)
 }
 
 func (c *fileEvent) EventAction() {
@@ -38,8 +38,9 @@ func (c *LoopCli) EventHandler() {}
 
 func (c *LoopCli) LoopInit(l *Loop) {
 	c.Main.RxReady = l.rxReady
-	c.Main.Prompt = "cli# "
-	c.Main.AddStdin()
+	if len(c.Main.Prompt) == 0 {
+		c.Main.Prompt = "cli# "
+	}
 	c.Main.Start()
 }
 
@@ -47,7 +48,7 @@ func (c *LoopCli) LoopExit(l *Loop) {
 	c.Main.End()
 }
 
-func (l *Loop) Logf(format string, args ...interface{})   { fmt.Fprintf(&l.cli.Main, format, args...) }
+func (l *Loop) Logf(format string, args ...interface{})   { fmt.Fprintf(&l.Cli.Main, format, args...) }
 func (l *Loop) Fatalf(format string, args ...interface{}) { panic(fmt.Errorf(format, args...)) }
 
 type rtNode struct {
@@ -134,23 +135,24 @@ func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err 
 
 func (l *Loop) cliInit() {
 	l.RegisterEventPoller(iomux.Default)
-	l.RegisterNode(&l.cli, "loop-cli")
-	l.cli.AddCommand(&cli.Command{
+	c := &l.Cli
+	l.RegisterNode(c, "loop-cli")
+	c.AddCommand(&cli.Command{
 		Name:      "show runtime",
 		ShortHelp: "show main loop runtime statistics",
 		Action:    l.showRuntimeStats,
 	})
-	l.cli.AddCommand(&cli.Command{
+	c.AddCommand(&cli.Command{
 		Name:      "clear runtime",
 		ShortHelp: "clear main loop runtime statistics",
 		Action:    l.clearRuntimeStats,
 	})
-	l.cli.AddCommand(&cli.Command{
+	c.AddCommand(&cli.Command{
 		Name:      "show event-log",
 		ShortHelp: "show events in event log",
 		Action:    l.showEventLog,
 	})
-	l.cli.AddCommand(&cli.Command{
+	c.AddCommand(&cli.Command{
 		Name:      "clear event-log",
 		ShortHelp: "clear events in event log",
 		Action:    l.clearEventLog,
