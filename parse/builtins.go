@@ -3,7 +3,7 @@ package parse
 // Boolean parser accepting yes/no 0/1
 type Bool bool
 
-func (b *Bool) Parse(in *Input, args *Args) {
+func (b *Bool) Parse(in *Input) {
 	switch text := in.Token(); text {
 	case "true", "yes", "1":
 		*b = true
@@ -18,7 +18,7 @@ func (b *Bool) Parse(in *Input, args *Args) {
 // Boolean parser accepting enable/disable yes/no
 type Enable bool
 
-func (b *Enable) Parse(in *Input, args *Args) {
+func (b *Enable) Parse(in *Input) {
 	switch text := in.Token(); text {
 	case "enable", "yes", "1":
 		*b = true
@@ -33,7 +33,7 @@ func (b *Enable) Parse(in *Input, args *Args) {
 // Boolean parser accepting up/down yes/no
 type UpDown bool
 
-func (b *UpDown) Parse(in *Input, args *Args) {
+func (b *UpDown) Parse(in *Input) {
 	switch text := in.Token(); text {
 	case "up", "yes", "1":
 		*b = true

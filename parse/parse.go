@@ -529,7 +529,20 @@ func (args *Args) SetNextInt(v uint64) {
 	case *uint64:
 		*a = uint64(v)
 	default:
-		panic(fmt.Errorf("unknown type: %T", arg))
+		val := reflect.ValueOf(a)
+		ptr := val
+		if ptr.Kind() != reflect.Ptr {
+			panic(fmt.Errorf("type not a pointer: " + val.Type().String()))
+			return
+		}
+		switch e := ptr.Elem(); e.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			e.SetInt(int64(v))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			e.SetUint(v)
+		default:
+			panic(fmt.Errorf("can't parse type: " + val.Type().String()))
+		}
 	}
 }
 
