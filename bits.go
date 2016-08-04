@@ -10,6 +10,9 @@ const (
 	_m           = ^Word(0)
 	Log2WordBits = 3 + (_m>>8&1 + _m>>16&1 + _m>>32&1)
 	WordBits     = 1 << Log2WordBits
+	_n           = ^uint(0)
+	Log2IntBits  = 3 + (_n>>8&1 + _n>>16&1 + _n>>32&1)
+	IntBits      = 1 << Log2IntBits
 )
 
 // Helper to index word sized bitmaps.
