@@ -255,9 +255,11 @@ const MaxVectorLen = 256
 type Vi uint8
 
 type pending struct {
-	in        *In
-	nextIndex uint32
-	nodeIndex uint32
+	in            *In
+	out           *Out
+	nodeIndex     uint32
+	nextIndex     uint32
+	nextNodeIndex uint32
 }
 
 type Out struct {
@@ -282,7 +284,13 @@ func (i *In) SetLen(l *Loop, nVec uint) {
 	xi, a, o := uint(i.nextIndex), i.currentThread(l), i.currentOut(l)
 	o.Len[xi] = Vi(nVec)
 	if isPending := nVec > 0; isPending && !o.isPending.Set(xi, isPending) {
-		a.pending = append(a.pending, pending{in: i, nextIndex: uint32(xi), nodeIndex: o.nextNodes[xi]})
+		a.pending = append(a.pending, pending{
+			in:            i,
+			out:           o,
+			nodeIndex:     a.currentNode.index,
+			nextNodeIndex: o.nextNodes[xi],
+			nextIndex:     uint32(xi),
+		})
 	}
 }
 func (i *In) GetLen(l *Loop) uint {
@@ -333,19 +341,21 @@ func (f *Out) call(l *Loop, a *activePoller) (nVec uint) {
 		pendingIndex++
 
 		// Fetch next node.
-		ni, xi := p.nodeIndex, p.nextIndex
+		ni, xi := p.nextNodeIndex, p.nextIndex
 		next := &a.activeNodes[ni]
+		prevNode := &a.activeNodes[p.nodeIndex]
 
 		// Determine vector length; 0 on pending vector means wrap to V (256).
-		nextN := f.nextVectors(uint(xi))
+		o := p.out
+		nextN := o.nextVectors(uint(xi))
 
 		in := p.in
 		in.activeIndex = uint16(a.index)
 		in.len = uint16(nextN)
 
 		// Reset this frame.
-		f.Len[xi] = 0
-		f.isPending.Unset(uint(xi))
+		o.Len[xi] = 0
+		o.isPending.Unset(uint(xi))
 
 		// Call next node.
 		a.currentNode = next
