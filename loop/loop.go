@@ -428,8 +428,8 @@ func (l *Loop) nodeGraphInit() {
 	for _, n := range l.DataNodes {
 		x := n.GetNode()
 		for _, name := range x.Next {
-			if _, ok := l.AddNamedNext(n, name); !ok {
-				panic(fmt.Errorf("%s: unknown next named %s", nodeName(n), name))
+			if _, err := l.AddNamedNext(n, name); err != nil {
+				panic(err)
 			}
 		}
 	}

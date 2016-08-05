@@ -188,15 +188,18 @@ func (l *Loop) AddNext(thisNoder Noder, nextNoder inNoder) (nextIndex uint) {
 	return
 }
 
-func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (nextIndex uint, ok bool) {
+func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (nextIndex uint, err error) {
 	var (
 		n  Noder
 		in inNoder
+		ok bool
 	)
 	if n, ok = l.dataNodeByName[nextName]; !ok {
+		err = fmt.Errorf("add-next %s: unknown next %s", nodeName(thisNoder), nextName)
 		return
 	}
 	if in, ok = n.(inNoder); !ok {
+		err = fmt.Errorf("add-next %s: %s has no input", nodeName(thisNoder), nextName)
 		return
 	}
 	nextIndex = l.AddNext(thisNoder, in)
