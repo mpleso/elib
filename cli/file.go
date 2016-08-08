@@ -23,34 +23,36 @@ func (c *File) writePrompt() {
 }
 
 func (c *File) RxReady() (err error) {
-	b := c.Read(0)
-	nl := strings.Index(string(b), "\n")
-	if nl == -1 {
-		return
-	}
-	end := nl
-	if end > 0 && b[end-1] == '\r' {
-		end--
-	}
-	if end > 0 {
-		err = c.main.Exec(c, strings.NewReader(string(b[:end])))
-		if err != nil {
-			fmt.Fprintf(c, "%s\n", err)
-		}
-		if err == ErrQuit {
-			// Quit is only quit from stdin; otherwise just close file.
-			if !c.isStdin() {
-				c.Close()
-				err = nil
-			}
+	for {
+		b := c.Read(0)
+		nl := strings.Index(string(b), "\n")
+		if nl == -1 {
 			return
 		}
-		// The only error we bubble to callers is ErrQuit
-		err = nil
+		end := nl
+		if end > 0 && b[end-1] == '\r' {
+			end--
+		}
+		if end > 0 {
+			err = c.main.Exec(c, strings.NewReader(string(b[:end])))
+			if err != nil {
+				fmt.Fprintf(c, "%s\n", err)
+			}
+			if err == ErrQuit {
+				// Quit is only quit from stdin; otherwise just close file.
+				if !c.isStdin() {
+					c.Close()
+					err = nil
+				}
+				return
+			}
+			// The only error we bubble to callers is ErrQuit
+			err = nil
+		}
+		c.writePrompt()
+		// Advance read buffer.
+		c.Read(nl + 1)
 	}
-	c.writePrompt()
-	// Advance read buffer.
-	c.Read(nl + 1)
 	return
 }
 
