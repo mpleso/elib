@@ -14,25 +14,32 @@ import (
 )
 
 type Node struct {
-	name                 string
-	index                uint
-	loop                 *Loop
-	rxEvents             chan event.Actor
-	toLoop               chan struct{}
-	fromLoop             chan struct{}
-	eventVec             event.ActorVec
-	active               bool
-	polling              bool
-	suspended            bool
-	dataCaller           inOutLooper
-	activePollerIndex    uint
-	initOnce             sync.Once
-	initWg               sync.WaitGroup
-	outIns               []LooperIn
-	nextIndexByNodeIndex map[uint]uint
-	nodeIndexByNext      []uint
-	Next                 []string
+	name                string
+	index               uint
+	loop                *Loop
+	rxEvents            chan event.Actor
+	toLoop              chan struct{}
+	fromLoop            chan struct{}
+	eventVec            event.ActorVec
+	active              bool
+	polling             bool
+	suspended           bool
+	dataCaller          inOutLooper
+	activePollerIndex   uint
+	initOnce            sync.Once
+	initWg              sync.WaitGroup
+	Next                []string
+	nextNodes           nextNodeVec
+	nextIndexByNodeName map[string]uint
 }
+
+type nextNode struct {
+	name      string
+	nodeIndex uint
+	in        LooperIn
+}
+
+//go:generate gentemplate -d Package=loop -id nextNode -d VecType=nextNodeVec -d Type=nextNode github.com/platinasystems/elib/vec.tmpl
 
 func (n *Node) GetNode() *Node { return n }
 func (n *Node) Index() uint    { return n.index }
@@ -121,6 +128,7 @@ type Loop struct {
 	wg           sync.WaitGroup
 
 	registrationsNeedStart bool
+	initialNodesRegistered bool
 	startTime              cpu.Time
 	now                    cpu.Time
 	cyclesPerSec           float64
@@ -424,17 +432,6 @@ func (l *Loop) doInitNodes() {
 	l.wg.Wait()
 }
 
-func (l *Loop) nodeGraphInit() {
-	for _, n := range l.DataNodes {
-		x := n.GetNode()
-		for _, name := range x.Next {
-			if _, err := l.AddNamedNext(n, name); err != nil {
-				panic(err)
-			}
-		}
-	}
-}
-
 func (l *Loop) doExit() {
 	l.callExitHooks()
 	for i := range l.loopExiters {
@@ -454,7 +451,8 @@ func (l *Loop) Run() {
 	l.registrationsNeedStart = true
 	l.callInitHooks()
 	l.doInitNodes()
-	l.nodeGraphInit()
+	// Now that all initial nodes have been registered, initialize node graph.
+	l.graphInit()
 	for {
 		if quit := l.doEvents(); quit {
 			break
@@ -570,8 +568,13 @@ func (l *Loop) RegisterNode(n Noder, format string, args ...interface{}) {
 	x := n.GetNode()
 	x.name = fmt.Sprintf(format, args...)
 	x.loop = l
-	start := l.registrationsNeedStart
+	for i := range x.Next {
+		if _, err := l.AddNamedNext(n, x.Next[i]); err != nil {
+			panic(err)
+		}
+	}
 
+	start := l.registrationsNeedStart
 	nOK := 0
 	if h, ok := n.(EventHandler); ok {
 		l.eventHandlers = append(l.eventHandlers, h)

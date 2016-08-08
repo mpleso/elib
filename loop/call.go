@@ -40,10 +40,12 @@ type activeNode struct {
 	outLooper               outLooper
 	looperOut               LooperOut
 	out                     *Out
-	outIns                  []LooperIn
+	outIns                  looperInVec
 	outSlice                *reflect.Value
 	inputStats, outputStats nodeStats
 }
+
+//go:generate gentemplate -d Package=loop -id looperIn -d VecType=looperInVec -d Type=LooperIn github.com/platinasystems/elib/vec.tmpl
 
 type activePoller struct {
 	index       uint16
@@ -125,13 +127,13 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 		return
 	}
 	for i := range ins {
-		a.addNext(ins[i])
+		a.addNext(ins[i], uint(i))
 	}
 	if len(inSlices) > 0 {
 		a.outSlice = &inSlices[0]
 		n := l.DataNodes[a.index].GetNode()
-		for i := range n.outIns {
-			a.addNext(n.outIns[i])
+		for i := range n.nextNodes {
+			a.addNext(n.nextNodes[i].in, uint(i))
 		}
 	}
 	return
@@ -139,71 +141,121 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 
 func ithLooperIn(as reflect.Value, i int) LooperIn { return as.Index(i).Addr().Interface().(LooperIn) }
 
-func (a *activeNode) addNext(i LooperIn) {
+func (a *activeNode) addNext(i LooperIn, withIndex uint) {
 	in := i.GetIn()
-	in.nextIndex = uint32(len(a.outIns))
+	x := int(withIndex)
+	in.nextIndex = uint32(x)
 	oi := i
 	if a.outSlice != nil {
 		as := *a.outSlice
-		sliceType := as.Type().Elem()
-		ai := int(in.nextIndex)
-		vi := reflect.ValueOf(i).Elem().Convert(sliceType)
-		as = reflect.Append(as, vi)
-		oi = ithLooperIn(as, ai)
-		(*a.outSlice).Set(as)
 
-		// Correct previous ins for when slice grows.
-		for j := 0; j < int(in.nextIndex); j++ {
-			a.outIns[j] = ithLooperIn(as, j)
+		c, l := as.Cap(), as.Len()
+		if x >= c {
+			c = int(elib.NextResizeCap(elib.Index(x)))
+			na := reflect.MakeSlice(as.Type(), c, c)
+			reflect.Copy(na, as)
+			for j := 0; j < l; j++ {
+				a.outIns[j] = ithLooperIn(na, j)
+			}
+			as = na
 		}
+
+		if l <= x {
+			l = x + 1
+		}
+
+		as = as.Slice(0, l)
+
+		// In as a reflect value.
+		vi := reflect.ValueOf(i).Elem().Convert(as.Type().Elem())
+		as.Index(x).Set(vi)
+		oi = ithLooperIn(as, x)
+
+		(*a.outSlice).Set(as)
 	}
-	a.outIns = append(a.outIns, oi)
+	a.outIns.Validate(uint(x))
+	a.outIns[x] = oi
 }
 
-func (this *Node) findNext(next *Node, create bool) (nextIndex uint, found bool) {
-	if this.nextIndexByNodeIndex == nil {
-		this.nextIndexByNodeIndex = make(map[uint]uint)
+func (n *Node) findNext(name string, create bool) (x uint, ok bool) {
+	if n.nextIndexByNodeName == nil {
+		n.nextIndexByNodeName = make(map[string]uint)
 	}
-	if nextIndex, found = this.nextIndexByNodeIndex[next.index]; !found && create {
-		nextIndex = uint(len(this.outIns))
-		this.nextIndexByNodeIndex[next.index] = nextIndex
+	if x, ok = n.nextIndexByNodeName[name]; !ok && create {
+		x = uint(len(n.nextNodes))
+		n.nextIndexByNodeName[name] = x
 	}
 	return
 }
 
-func (l *Loop) AddNext(thisNoder Noder, nextNoder inNoder) (nextIndex uint) {
-	this, next := thisNoder.GetNode(), nextNoder.GetNode()
+func (l *Loop) AddNamedNextWithIndex(nr Noder, nextName string, withIndex uint) (nextIndex uint, err error) {
+	n := nr.GetNode()
 
-	var ok bool
-	if nextIndex, ok = this.findNext(next, true); ok {
-		return
-	}
-
-	li := nextNoder.MakeLoopIn()
-	this.outIns = append(this.outIns, li)
-	this.nodeIndexByNext = append(this.nodeIndexByNext, next.index)
-	l.activePollerPool.Foreach(func(p *activePoller) {
-		p.activeNodes[this.index].addNext(li)
-	})
-	return
-}
-
-func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (nextIndex uint, err error) {
 	var (
-		n  Noder
-		in inNoder
+		xr Noder
+		xi inNoder
+		x  *Node
 		ok bool
 	)
-	if n, ok = l.dataNodeByName[nextName]; !ok {
-		err = fmt.Errorf("add-next %s: unknown next %s", nodeName(thisNoder), nextName)
-		return
+	if l.initialNodesRegistered {
+		if xr, ok = l.dataNodeByName[nextName]; !ok {
+			err = fmt.Errorf("add-next %s: unknown next %s", n.name, nextName)
+			return
+		}
+		if xi, ok = xr.(inNoder); !ok {
+			err = fmt.Errorf("add-next %s: %s is not input node", n.name, nextName)
+			return
+		}
+		x = xr.GetNode()
 	}
-	if in, ok = n.(inNoder); !ok {
-		err = fmt.Errorf("add-next %s: %s has no input", nodeName(thisNoder), nextName)
-		return
+
+	if nextIndex, ok = n.findNext(nextName, true); ok {
+		if nextIndex != withIndex && withIndex != ^uint(0) {
+			err = fmt.Errorf("add-next %s: inconsistent next for %s", n.name, nextName)
+			return
+		}
 	}
-	nextIndex = l.AddNext(thisNoder, in)
+
+	if withIndex == ^uint(0) {
+		withIndex = n.nextNodes.Len()
+	}
+	nextIndex = withIndex
+	n.nextNodes.Validate(nextIndex)
+	nn := &n.nextNodes[nextIndex]
+
+	nn.name = nextName
+
+	if xr != nil {
+		nn.nodeIndex = x.index
+		nn.in = xi.MakeLoopIn()
+		l.activePollerPool.Foreach(func(p *activePoller) {
+			p.activeNodes[n.index].addNext(nn.in, withIndex)
+		})
+	}
 	return
+}
+
+func (l *Loop) AddNextWithIndex(n Noder, x inNoder, withIndex uint) (uint, error) {
+	return l.AddNamedNextWithIndex(n, nodeName(x), withIndex)
+}
+func (l *Loop) AddNext(n Noder, x inNoder) (uint, error) { return l.AddNextWithIndex(n, x, ^uint(0)) }
+
+func (l *Loop) AddNamedNext(thisNoder Noder, nextName string) (uint, error) {
+	return l.AddNamedNextWithIndex(thisNoder, nextName, ^uint(0))
+}
+
+func (l *Loop) graphInit() {
+	l.initialNodesRegistered = true
+	for _, n := range l.DataNodes {
+		x := n.GetNode()
+		for i := range x.nextNodes {
+			if xn := &x.nextNodes[i]; len(xn.name) > 0 {
+				if _, err := l.AddNamedNextWithIndex(n, xn.name, uint(i)); err != nil {
+					panic(err)
+				}
+			}
+		}
+	}
 }
 
 func (ap *activePoller) initNodes(l *Loop) {
@@ -241,7 +293,7 @@ func (ap *activePoller) initNodes(l *Loop) {
 		for xi := range a.outIns {
 			oi := a.outIns[xi]
 			aNode := l.DataNodes[a.index].GetNode()
-			a.out.nextNodes[xi] = uint32(aNode.nodeIndexByNext[xi])
+			a.out.nextNodes[xi] = uint32(aNode.nextNodes[xi].nodeIndex)
 			i := oi.GetIn()
 			i.activeIndex = ap.index
 		}
