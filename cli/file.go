@@ -16,6 +16,16 @@ func (c *File) ReadReady() (err error) {
 	return
 }
 
+func (c *File) WriteReady() (err error) {
+	if err = c.FileReadWriteCloser.WriteReady(); err == nil {
+		if c.closeAfterTxFlush && !c.WriteAvailable() {
+			c.closeAfterTxFlush = false
+			c.Close()
+		}
+	}
+	return
+}
+
 func (c *File) writePrompt() {
 	if l := len(c.main.Prompt); !c.disablePrompt && l > 0 {
 		c.Write([]byte(c.main.Prompt))
@@ -36,12 +46,14 @@ func (c *File) RxReady() (err error) {
 		if end > 0 {
 			err = c.main.Exec(c, strings.NewReader(string(b[:end])))
 			if err != nil {
-				fmt.Fprintf(c, "%s\n", err)
+				if s := err.Error(); len(s) > 0 {
+					fmt.Fprintf(c, "%s\n", s)
+				}
 			}
 			if err == ErrQuit {
 				// Quit is only quit from stdin; otherwise just close file.
 				if !c.isStdin() {
-					c.Close()
+					c.closeAfterTxFlush = true
 					err = nil
 				}
 				return

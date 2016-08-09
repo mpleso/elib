@@ -12,7 +12,7 @@ func addBuiltin(c Commander) { builtins = append(builtins, c) }
 
 type quitCmd struct{}
 
-var ErrQuit = errors.New("Quit")
+var ErrQuit = errors.New("")
 
 func (c *quitCmd) CliName() string                    { return "quit" }
 func (c *quitCmd) CliAction(w Writer, s *Input) error { return ErrQuit }

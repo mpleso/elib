@@ -93,6 +93,7 @@ func (s *FileBuf) WriteReady() (err error) {
 	s.txBufLock.Lock()
 
 	if s.Fd < 0 { // closed?
+		s.txBufLock.Unlock()
 		return
 	}
 
