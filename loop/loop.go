@@ -178,7 +178,7 @@ func (l *Loop) doEvent(e event.Actor) {
 		if err := recover(); err == ErrQuit {
 			l.Quit()
 		} else if err != nil {
-			fmt.Printf("%s\n", err)
+			fmt.Println(err)
 			l.Quit()
 		}
 	}()
