@@ -100,8 +100,15 @@ func (in *Input) read() {
 	in.buf = in.buf[:l+n]
 }
 
-func (in *Input) End() (end bool) {
+func (in *Input) end(skipSpace bool) (end bool) {
 	for {
+		for skipSpace && in.index < len(in.buf) {
+			r, size := in.ReadRune()
+			if !isSpace(r) {
+				in.Unread(size)
+				break
+			}
+		}
 		end = in.index >= len(in.buf)
 		if !end || in.sawEnd {
 			return
@@ -109,6 +116,9 @@ func (in *Input) End() (end bool) {
 		in.read()
 	}
 }
+
+func (in *Input) EndNoSkip() (end bool) { return in.end(false) }
+func (in *Input) End() (end bool)       { return in.end(true) }
 
 func (in *Input) doRead(n int, must bool) (r []byte, ok bool) {
 	for in.index+n > len(in.buf) {
@@ -190,7 +200,7 @@ func (in *Input) Token() (s string) {
 	in.Save()
 	in.skipSpace()
 	i0 := in.index
-	for !in.End() {
+	for !in.EndNoSkip() {
 		r, size := in.ReadRune()
 		if isSpace(r) {
 			in.Unread(size)
@@ -209,7 +219,7 @@ func (in *Input) Token() (s string) {
 func isSpace(r rune) bool { return unicode.IsSpace(r) }
 
 func (in *Input) skipSpace() (nSpace int) {
-	for !in.End() {
+	for !in.EndNoSkip() {
 		r, size := in.ReadRune()
 		if !isSpace(r) {
 			in.Unread(size)
@@ -260,7 +270,7 @@ func (in *Input) parseInt(base, bitSize int, signed bool) (x uint64, ok bool) {
 	if signed {
 		negate = in.AtOneof("+-") == 1
 	}
-	for !in.End() {
+	for !in.EndNoSkip() {
 		r, size := in.ReadRune()
 		d := base
 		switch {
@@ -325,7 +335,7 @@ func (in *Input) ParseFloat() (x float64, ok bool) {
 		i, nDigitsBeforeDecimal int
 	)
 	in.Save()
-	for !in.End() {
+	for !in.EndNoSkip() {
 		r, size := in.ReadRune()
 		done := false
 		switch r {
@@ -469,7 +479,7 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 						break
 					}
 				}
-			} else if matchOptional && in.End() {
+			} else if matchOptional && in.EndNoSkip() {
 				// Advance past optional format characters with no input.
 			} else if r, size := in.ReadRune(); r != fmtc {
 				if matchOptional && !unicode.IsLetter(r) {
@@ -487,7 +497,7 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 	// For optional match make sure input terminates with non-letter.
 	// This handles the case of format "f%*oo" which should not match input "food" but
 	// should match "foo!".
-	if ok && matchOptional && !in.End() {
+	if ok && matchOptional && !in.EndNoSkip() {
 		r, size := in.ReadRune()
 		if ok = !unicode.IsLetter(r); ok {
 			in.Unread(size)
@@ -710,7 +720,7 @@ func (in *Input) parseString(delimiter rune) (s string) {
 	is_paren_delimited := false
 	paren := 0
 loop:
-	for !in.End() {
+	for !in.EndNoSkip() {
 		r, size := in.ReadRune()
 		add := true
 		if backslash {
