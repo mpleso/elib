@@ -1,5 +1,9 @@
 package parse
 
+import (
+	"regexp"
+)
+
 // Boolean parser accepting yes/no 0/1
 type Bool bool
 
@@ -74,4 +78,15 @@ func (m StringMap) ParseWithArgs(in *Input, args *Args) {
 		panic(ErrInput)
 	}
 	return
+}
+
+type Regexp struct{ *regexp.Regexp }
+
+func (r *Regexp) Valid() bool { return r.Regexp != nil }
+func (r *Regexp) Parse(in *Input) {
+	text := in.Token()
+	var err error
+	if r.Regexp, err = regexp.Compile(text); err != nil {
+		panic(err)
+	}
 }
