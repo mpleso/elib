@@ -84,21 +84,21 @@ type DeviceID struct {
 func (d *Device) VendorID() VendorID       { return d.Config.Hdr.Vendor }
 func (d *Device) DeviceID() VendorDeviceID { return d.Config.Hdr.Device }
 
-type BaseAddress uint32
+type BaseAddressReg uint32
 
-func (b BaseAddress) IsMem() bool {
+func (b BaseAddressReg) IsMem() bool {
 	return b&(1<<0) == 0
 }
 
-func (b BaseAddress) Addr() uint32 {
+func (b BaseAddressReg) Addr() uint32 {
 	return uint32(b &^ 0xf)
 }
 
-func (b BaseAddress) Valid() bool {
+func (b BaseAddressReg) Valid() bool {
 	return b.Addr() != 0
 }
 
-func (b BaseAddress) String() string {
+func (b BaseAddressReg) String() string {
 	if b == 0 {
 		return "{}"
 	}
@@ -132,7 +132,7 @@ type DeviceConfig struct {
 	// Base addresses specify locations in memory or I/O space.
 	// Decoded size can be determined by writing a value of 0xffffffff to the register, and reading it back.
 	// Only 1 bits are decoded.
-	BaseAddress [6]BaseAddress
+	BaseAddressRegs [6]BaseAddressReg
 
 	CardBusCIS uint32
 
@@ -234,7 +234,7 @@ func (a BusAddress) String() string {
 
 type Resource struct {
 	Index      uint32 // index of BAR
-	BAR        BaseAddress
+	BAR        [2]BaseAddressReg
 	Base, Size uint64
 	Mem        []byte
 }

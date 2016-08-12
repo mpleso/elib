@@ -131,22 +131,37 @@ func DiscoverDevices() (err error) {
 			continue
 		}
 
-		for i := range d.Config.BaseAddress {
-			bar := d.Config.BaseAddress[i]
-			if !bar.Valid() {
-				continue
+		// Loop through BARs to find resources.
+		{
+			i := 0
+			for i < len(d.Config.BaseAddressRegs) {
+				bar := d.Config.BaseAddressRegs[i]
+				if !bar.Valid() {
+					i++
+					continue
+				}
+				var rfi os.FileInfo
+				rfi, err = os.Stat(d.SysfsPath("resource%d", i))
+				if err != nil {
+					return
+				}
+				r := Resource{
+					Index: uint32(i),
+					Base:  uint64(bar.Addr()),
+					Size:  uint64(rfi.Size()),
+				}
+				r.BAR[0] = bar
+
+				i++
+				is64bit := (bar>>1)&3 == 2
+				if is64bit {
+					r.BAR[1] = d.Config.BaseAddressRegs[i+1]
+					r.Base |= uint64(r.BAR[1]) << 32
+					i++
+				}
+
+				d.Resources = append(d.Resources, r)
 			}
-			var rfi os.FileInfo
-			rfi, err = os.Stat(d.SysfsPath("resource%d", i))
-			if err != nil {
-				return
-			}
-			d.Resources = append(d.Resources, Resource{
-				Index: uint32(i),
-				BAR:   bar,
-				Base:  uint64(bar.Addr()),
-				Size:  uint64(rfi.Size()),
-			})
 		}
 
 		d.Driver = driver
