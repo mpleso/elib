@@ -26,6 +26,15 @@ func (c *File) WriteReady() (err error) {
 	return
 }
 
+// Either close immediately or wait until tx buffer is empty to close.
+func (c *File) close() {
+	if c.WriteAvailable() {
+		c.closeAfterTxFlush = true
+	} else {
+		c.Close()
+	}
+}
+
 func (c *File) writePrompt() {
 	if l := len(c.main.Prompt); !c.disablePrompt && l > 0 {
 		c.Write([]byte(c.main.Prompt))
@@ -53,7 +62,7 @@ func (c *File) RxReady() (err error) {
 			if err == ErrQuit {
 				// Quit is only quit from stdin; otherwise just close file.
 				if !c.isStdin() {
-					c.closeAfterTxFlush = true
+					c.close()
 					err = nil
 				}
 				return
