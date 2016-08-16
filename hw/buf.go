@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync"
 	"unsafe"
 )
 
@@ -137,6 +138,8 @@ type Buffer struct {
 func (b *Buffer) reset(p *BufferPool) { *b = p.Buffer }
 
 type BufferPool struct {
+	mu sync.Mutex
+
 	BufferTemplate
 
 	// References to buffers in this pool.
@@ -234,6 +237,8 @@ func (r *RefHeader) slice(n uint) (l []Ref) {
 func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1) }
 
 func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	var got uint
 	for {
 		if got = uint(len(p.refs)); got >= want {
@@ -319,6 +324,8 @@ func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
 
 // Return all buffers to pool and reset for next usage.
 func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	toFree := rh.slice(n)
 	initialLen := uint(len(p.refs))
 	p.refs.Resize(n)
