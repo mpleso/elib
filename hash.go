@@ -358,6 +358,17 @@ func (h *Hash) Unset(k HasherKey) (i uint, ok bool) {
 	return
 }
 
+func (h *Hash) Clear() {
+	// Compiler will optimize into memclr.
+	for i := range h.bitDiffs {
+		h.bitDiffs[i] = 0
+	}
+	for i := range h.maxBucketBitDiffs {
+		h.maxBucketBitDiffs[i] = 0
+	}
+	h.nElts = 0
+}
+
 const (
 	hashLog2CapMinUnit = 3
 	hashLog2CapMinSize = 4
