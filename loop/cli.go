@@ -37,7 +37,6 @@ func (c *fileEvent) String() string { return "rx-ready " + c.File.String() }
 func (c *LoopCli) EventHandler() {}
 
 func (c *LoopCli) LoopInit(l *Loop) {
-	c.Main.RxReady = l.rxReady
 	if len(c.Main.Prompt) == 0 {
 		c.Main.Prompt = "cli# "
 	}
@@ -136,6 +135,7 @@ func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err 
 func (l *Loop) cliInit() {
 	l.RegisterEventPoller(iomux.Default)
 	c := &l.Cli
+	c.Main.RxReady = l.rxReady
 	l.RegisterNode(c, "loop-cli")
 	c.AddCommand(&cli.Command{
 		Name:      "show runtime",
