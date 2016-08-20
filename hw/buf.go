@@ -259,7 +259,7 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 		ri := got
 		p.refs.Resize(n_alloc)
 		p.memChunkIDs = append(p.memChunkIDs, id)
-		p.DmaMemAllocBytes += uint64(b)
+		p.DmaMemAllocBytes += uint64(nb)
 		// Refs are allocated from end of refs so we put smallest offsets there.
 		o := offset + (n_alloc-1)*b
 		for i := uint(0); i < n_alloc; i++ {
