@@ -93,17 +93,6 @@ func (r *RefHeader) Restore(oldDataOffset int) {
 	r.dataLen = uint16(int(r.dataLen) - Δ)
 }
 
-// Length in buffer chain.
-func (r *RefHeader) TotalLen() (l uint) {
-	for {
-		l += r.DataLen()
-		if r = r.NextRef(); r == nil {
-			break
-		}
-	}
-	return
-}
-
 //go:generate gentemplate -d Package=hw -id Ref -d VecType=RefVec -d Type=Ref github.com/platinasystems/elib/vec.tmpl
 
 const (
@@ -498,11 +487,38 @@ func (c *RefChain) Append(r *RefHeader) {
 	}
 }
 
+// Length in buffer chain.
+func (r *RefHeader) TotalLen() (l uint) {
+	for {
+		l += r.DataLen()
+		if r = r.NextRef(); r == nil {
+			break
+		}
+	}
+	return
+}
+
+func (r *RefHeader) validateTotalLen(want uint) (l uint, ok bool) {
+	for {
+		l += r.DataLen()
+		if r = r.NextRef(); r == nil {
+			ok = true
+			return
+		}
+		if l > want {
+			ok = false
+			return
+		}
+	}
+}
+
 func (c *RefChain) Validate() {
 	if !elib.Debug {
 		return
 	}
-	if got, want := c.head.TotalLen(), c.Len(); got != want {
+	want := c.Len()
+	got, ok := c.head.validateTotalLen(want)
+	if !ok || got != want {
 		panic(fmt.Errorf("length mismatch; got %d != want %d", got, want))
 	}
 	c.head.Validate()
