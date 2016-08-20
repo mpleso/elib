@@ -148,6 +148,9 @@ type BufferPool struct {
 	// DMA memory chunks used by this pool.
 	memChunkIDs []elib.Index
 
+	// Number of bytes of dma memory allocated by this pool.
+	DmaMemAllocBytes uint64
+
 	freeNext freeNext
 }
 
@@ -220,6 +223,7 @@ func (p *BufferPool) Del() {
 		DmaFree(p.memChunkIDs[i])
 	}
 	// Unlink garbage.
+	p.DmaMemAllocBytes = 0
 	p.memChunkIDs = nil
 	p.refs = nil
 	p.Data = nil
@@ -255,6 +259,7 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 		ri := got
 		p.refs.Resize(n_alloc)
 		p.memChunkIDs = append(p.memChunkIDs, id)
+		p.DmaMemAllocBytes += uint64(b)
 		// Refs are allocated from end of refs so we put smallest offsets there.
 		o := offset + (n_alloc-1)*b
 		for i := uint(0); i < n_alloc; i++ {

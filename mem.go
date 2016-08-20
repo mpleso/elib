@@ -1,6 +1,7 @@
 package elib
 
 import (
+	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -88,4 +89,31 @@ func PointerPoison(p unsafe.Pointer, n uintptr) {
 	if i < n {
 		*(*uint8)(PointerAdd(p, i)) = uint8(poison)
 	}
+}
+
+type MemorySize uint64
+
+func (s MemorySize) String() (v string) {
+	u, c := uint64(1), rune(0)
+	switch {
+	case s >= 1<<40:
+		u, c = 1<<40, 'T'
+	case s >= 1<<30:
+		u, c = 1<<30, 'G'
+	case s >= 1<<20:
+		u, c = 1<<20, 'M'
+	case s >= 1<<10:
+		u, c = 1<<10, 'K'
+	}
+	x := float64(s) / float64(u)
+	if c == 0 {
+		v = fmt.Sprintf("%d", s)
+	} else {
+		if x != float64(int64(x)) {
+			v = fmt.Sprintf("%.2f%c", x, c)
+		} else {
+			v = fmt.Sprintf("%.0f%c", x, c)
+		}
+	}
+	return
 }
