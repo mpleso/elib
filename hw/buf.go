@@ -367,20 +367,19 @@ type freeNext struct {
 	refs  RefVec
 }
 
-func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
-	h := &r.RefHeader
-	if h.NextIsValid() {
-		for {
-			f.refs.Validate(f.count)
-			f.refs[f.count].RefHeader = nextRef
-			f.count++
-			if !nextRef.NextIsValid() {
-				break
-			}
-			b := nextRef.GetBuffer()
-			h = &b.nextRef
-			nextRef = *h
+func (f *freeNext) add(r *Ref, nextRef RefHeader) {
+	if !r.NextIsValid() {
+		return
+	}
+	for {
+		f.refs.Validate(f.count)
+		f.refs[f.count].RefHeader = nextRef
+		f.count++
+		if !nextRef.NextIsValid() {
+			break
 		}
+		b := nextRef.GetBuffer()
+		nextRef = b.nextRef
 	}
 }
 
@@ -421,10 +420,10 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		i += 4
 		n -= 4
 		if RefFlag4(NextValid, r0.h(), r1.h(), r2.h(), r3.h()) {
-			p.freeNext.add(p, r0, n0)
-			p.freeNext.add(p, r1, n1)
-			p.freeNext.add(p, r2, n2)
-			p.freeNext.add(p, r3, n3)
+			p.freeNext.add(r0, n0)
+			p.freeNext.add(r1, n1)
+			p.freeNext.add(r2, n2)
+			p.freeNext.add(r3, n3)
 		}
 	}
 
@@ -439,7 +438,7 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		i += 1
 		n -= 1
 		if RefFlag1(NextValid, r0.h()) {
-			p.freeNext.add(p, r0, n0)
+			p.freeNext.add(r0, n0)
 		}
 	}
 
