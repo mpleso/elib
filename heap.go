@@ -38,6 +38,23 @@ func (heap *Heap) SetMaxLen(l uint) {
 
 func (heap *Heap) GetMaxLen() uint { return uint(heap.maxLen) }
 
+type HeapUsage struct {
+	Used, Free uint64
+}
+
+func (heap *Heap) GetUsage() (u HeapUsage) {
+	for i := range heap.elts {
+		e := &heap.elts[i]
+		size := uint64(heap.eltSize(e))
+		if e.isFree() {
+			u.Free += size
+		} else {
+			u.Used += size
+		}
+	}
+	return
+}
+
 type freeElt Index
 
 //go:generate gentemplate -d Package=elib -id freeElt -d VecType=freeEltVec -d Type=freeElt vec.tmpl

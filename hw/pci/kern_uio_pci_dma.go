@@ -209,6 +209,18 @@ func DmaOffset(b []byte) uint {
 }
 func DmaGetOffset(o uint) unsafe.Pointer { return unsafe.Pointer(&uioPciDma.data[o]) }
 func DmaIsValidOffset(o uint) bool       { return o < uint(len(uioPciDma.data)) }
+func DmaUsage() string {
+	h := &uioPciDma.heap
+	max := h.GetMaxLen()
+	if max == 0 {
+		return "empty"
+	}
+	u := h.GetUsage()
+	return fmt.Sprintf("used %s, free %s, capacity %s",
+		elib.MemorySize(u.Used<<cpu.Log2CacheLineBytes),
+		elib.MemorySize(u.Free<<cpu.Log2CacheLineBytes),
+		elib.MemorySize(max<<cpu.Log2CacheLineBytes))
+}
 
 // Returns caller physical address of given virtual address.
 // Physical address will be suitable for hardware DMA.

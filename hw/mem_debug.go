@@ -23,3 +23,4 @@ func DmaPhysAddress(a uintptr) uintptr                            { return a }
 func DmaOffset(b []byte) uint                                     { return memHeap.Offset(b) }
 func DmaGetOffset(o uint) unsafe.Pointer                          { return memHeap.Data(o) }
 func DmaIsValidOffset(o uint) (uint, bool)                        { return o, memHeap.OffsetValid(o) }
+func DmaHeapUsage() string                                        { return memHeap.String() }

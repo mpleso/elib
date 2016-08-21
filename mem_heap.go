@@ -64,3 +64,15 @@ func (h *MemHeap) Offset(b []byte) uint {
 
 func (h *MemHeap) Data(o uint) unsafe.Pointer { return unsafe.Pointer(&h.data[o]) }
 func (h *MemHeap) OffsetValid(o uint) bool    { return o < uint(len(h.data)) }
+
+func (h *MemHeap) String() string {
+	max := h.heap.GetMaxLen()
+	if max == 0 {
+		return "empty"
+	}
+	u := h.heap.GetUsage()
+	return fmt.Sprintf("used %s, free %s, capacity %s",
+		MemorySize(u.Used<<cpu.Log2CacheLineBytes),
+		MemorySize(u.Free<<cpu.Log2CacheLineBytes),
+		MemorySize(max<<cpu.Log2CacheLineBytes))
+}
