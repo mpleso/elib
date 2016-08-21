@@ -4,6 +4,7 @@ import (
 	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cpu"
 
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -164,15 +165,14 @@ var allocStateStrings = [...]string{
 
 func (s allocState) String() string { return elib.Stringer(allocStateStrings[:], int(s)) }
 
-func (p *BufferPool) setState(r *Ref, new allocState) (old allocState) {
+func (p *BufferPool) setState(offset uint32, new allocState) (old allocState) {
 	p.m.Lock()
 	defer p.m.Unlock()
 	if p.m.bufferStateByOffset == nil {
 		p.m.bufferStateByOffset = make(map[uint32]allocState)
 	}
-	o := r.offset()
-	old = p.m.bufferStateByOffset[o]
-	p.m.bufferStateByOffset[o] = new
+	old = p.m.bufferStateByOffset[offset]
+	p.m.bufferStateByOffset[offset] = new
 	return
 }
 
@@ -354,7 +354,7 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 
 	if elib.Debug {
 		for i := uint(0); i < uint(len(refs)); i += stride {
-			s := p.setState(&refs[i], allocStateKnownAllocated)
+			s := p.setState(refs[i].offset(), allocStateKnownAllocated)
 			if s == allocStateKnownAllocated {
 				panic("duplicate alloc")
 			}
@@ -367,11 +367,17 @@ type freeNext struct {
 	refs  RefVec
 }
 
-func (f *freeNext) add(r *Ref, nextRef RefHeader) {
+var duplicateFreeErr = errors.New("duplicate free")
+
+func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
 	if !r.NextIsValid() {
 		return
 	}
 	for {
+		s := p.setState(nextRef.offset(), allocStateKnownFree)
+		if s != allocStateKnownAllocated {
+			panic(duplicateFreeErr)
+		}
 		f.refs.Validate(f.count)
 		f.refs[f.count].RefHeader = nextRef
 		f.count++
@@ -384,16 +390,17 @@ func (f *freeNext) add(r *Ref, nextRef RefHeader) {
 }
 
 // Return all buffers to pool and reset for next usage.
-func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
+// freeNext specifies whether or not to follow and free next pointers.
+func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
 
 	if elib.Debug {
 		for i := range toFree {
-			s := p.setState(&toFree[i], allocStateKnownFree)
+			s := p.setState(toFree[i].offset(), allocStateKnownFree)
 			if s != allocStateKnownAllocated {
-				panic("duplicate free")
+				panic(duplicateFreeErr)
 			}
 		}
 	}
@@ -401,6 +408,9 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 	initialLen := p.FreeLen()
 	p.refs.Resize(n)
 	r := p.refs[initialLen:]
+
+	// We'll follow and add next pointers even if freeNext is false.
+	p.freeNext.count = 0
 
 	t := p.Ref
 	i := 0
@@ -420,17 +430,16 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		i += 4
 		n -= 4
 		if RefFlag4(NextValid, r0.h(), r1.h(), r2.h(), r3.h()) {
-			p.freeNext.add(r0, n0)
-			p.freeNext.add(r1, n1)
-			p.freeNext.add(r2, n2)
-			p.freeNext.add(r3, n3)
+			p.freeNext.add(p, r0, n0)
+			p.freeNext.add(p, r1, n1)
+			p.freeNext.add(p, r2, n2)
+			p.freeNext.add(p, r3, n3)
 		}
 	}
 
 	for n > 0 {
 		r0 := &toFree[i+0]
 		b0 := r0.GetBuffer()
-		r0.Validate()
 		r[i+0] = t
 		r[i+0].copyOffset(r0)
 		n0 := b0.nextRef
@@ -438,14 +447,13 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 		i += 1
 		n -= 1
 		if RefFlag1(NextValid, r0.h()) {
-			p.freeNext.add(r0, n0)
+			p.freeNext.add(p, r0, n0)
 		}
 	}
 
-	if f := &p.freeNext; f.count > 0 {
+	if f := &p.freeNext; f.count > 0 && freeNext {
 		n = f.count
-		f.count = 0
-		l := uint(len(p.refs))
+		l := len(p.refs)
 		p.refs.Resize(n)
 		r := p.refs[l:]
 
