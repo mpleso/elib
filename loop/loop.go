@@ -78,8 +78,8 @@ func (n *Node) freeActivePoller(l *Loop) {
 func (n *Node) Activate(enable bool) {
 	if n.active != enable {
 		n.active = enable
-		// Interrupt wait to poll active nodes.
-		if enable && n.loop.eventWaiting {
+		// Interrupt event wait to poll active nodes.
+		if enable {
 			n.loop.Interrupt()
 		}
 	}
@@ -122,10 +122,9 @@ type Loop struct {
 	nActivePollers   uint
 	pollerStats      pollerStats
 
-	events       chan loopEvent
-	eventPool    event.Pool
-	eventWaiting bool
-	wg           sync.WaitGroup
+	events    chan loopEvent
+	eventPool event.Pool
+	wg        sync.WaitGroup
 
 	registrationsNeedStart bool
 	initialNodesRegistered bool
@@ -252,9 +251,7 @@ func (l *Loop) doEvents() (quitLoop bool) {
 	if l.nActivePollers > 0 {
 		quit = l.doEventNoWait()
 	} else {
-		l.eventWaiting = true
 		quit = l.doEventWait()
-		l.eventWaiting = false
 	}
 	if quit != nil {
 		quitLoop = quit.Type == quitEventExit
