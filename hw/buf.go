@@ -184,6 +184,8 @@ type BufferTemplate struct {
 	Data []byte
 }
 
+func (t *BufferTemplate) SizeIncludingOverhead() uint { return t.sizeIncludingOverhead }
+
 var DefaultBufferTemplate = &BufferTemplate{
 	Size: 512,
 	Ref:  defaultRef,
@@ -227,14 +229,15 @@ func (r *RefHeader) slice(n uint) (l []Ref) {
 	return
 }
 
-func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1) }
+func (p *BufferPool) FreeLen() uint { return uint(len(p.refs)) }
 
+func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1) }
 func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var got uint
 	for {
-		if got = uint(len(p.refs)); got >= want {
+		if got = p.FreeLen(); got >= want {
 			break
 		}
 		b := p.sizeIncludingOverhead
@@ -321,7 +324,7 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
-	initialLen := uint(len(p.refs))
+	initialLen := p.FreeLen()
 	p.refs.Resize(n)
 	r := p.refs[initialLen:]
 
