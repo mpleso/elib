@@ -141,7 +141,37 @@ type BufferPool struct {
 	DmaMemAllocBytes uint64
 
 	freeNext freeNext
+
+	stateByOffset map[uint32]allocState
 }
+
+type allocState uint8
+
+const (
+	allocStateUnknown = iota
+	allocStateKnownAllocated
+	allocStateKnownFree
+)
+
+var allocStateStrings = [...]string{
+	allocStateUnknown:        "unkown",
+	allocStateKnownAllocated: "known-allocated",
+	allocStateKnownFree:      "known-free",
+}
+
+func (s allocState) String() string { return elib.Stringer(allocStateStrings[:], int(s)) }
+
+func (p *BufferPool) setState(r *Ref, new allocState) (old allocState) {
+	if p.stateByOffset == nil {
+		p.stateByOffset = make(map[uint32]allocState)
+	}
+	o := r.offset()
+	old = p.stateByOffset[o]
+	p.stateByOffset[o] = new
+	return
+}
+
+func (p *BufferPool) getState(r *Ref) allocState { return p.stateByOffset[r.offset()] }
 
 // Method to over-ride to initialize refs for this buffer pool.
 // This is used for example to set packet lengths, adjust packet fields, etc.
@@ -272,12 +302,10 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 
 	pr := p.refs[got-want : got]
 
+	refs := r.slice(want * stride)
 	if stride == 1 {
-		refs := r.slice(want)
 		copy(refs, pr)
 	} else {
-		l := want * stride
-		refs := r.slice(l)
 		i, ri := uint(0), uint(0)
 		for i+4 < want {
 			refs[ri+0*stride] = pr[i+0]
@@ -295,6 +323,15 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 	}
 
 	p.refs = p.refs[:got-want]
+
+	if elib.Debug {
+		for i := range refs {
+			s := p.setState(&refs[i], allocStateKnownAllocated)
+			if s == allocStateKnownAllocated {
+				panic("duplicate alloc")
+			}
+		}
+	}
 }
 
 type freeNext struct {
@@ -324,6 +361,16 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
+
+	if elib.Debug {
+		for i := range toFree {
+			s := p.setState(&toFree[i], allocStateKnownFree)
+			if s != allocStateKnownAllocated {
+				panic("duplicate free")
+			}
+		}
+	}
+
 	initialLen := p.FreeLen()
 	p.refs.Resize(n)
 	r := p.refs[initialLen:]
