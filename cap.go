@@ -13,16 +13,16 @@ func (c Cap) IsValid() bool {
 const CapNil = ^Cap(0)
 
 func (n Cap) Round(log2Unit Cap) Cap {
+	u := Word(1<<log2Unit - 1)
+	w := (Word(n) + u) &^ u
 	// Power of 2?
-	if n&(n-1) != 0 {
-		u := Word(1<<log2Unit - 1)
-		w := (Word(n) + u) &^ u
+	if w&(w-1) != 0 {
 		l0 := MinLog2(w)
 		m0 := Word(1) << l0
 		l1 := MaxLog2(w ^ m0)
-		n = Cap(m0 + 1<<l1)
+		w = m0 + 1<<l1
 	}
-	return n
+	return Cap(w)
 }
 
 func (c Cap) Pow2() (i, j Cap) {
