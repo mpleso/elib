@@ -286,8 +286,35 @@ func (h *Hash) ForeachIndex(f func(i uint)) {
 	}
 }
 
-func (h *Hash) Elts() uint { return uint(h.nElts) }
-func (h *Hash) Cap() uint  { return uint(h.cap) }
+func (h *Hash) nextValidIndex(i, nth uint) uint {
+	if i == ^uint(0) {
+		i = 0
+	}
+	n := uint(len(h.bitDiffs))
+	count := uint(0)
+	for i < n {
+		if h.bitDiffs[i].isValid() {
+			if count == nth {
+				return i
+			}
+			count++
+		}
+		i++
+	}
+	return ^uint(0)
+}
+
+func (h *Hash) NextIndex(i uint) uint { return h.nextValidIndex(i, 1) }
+func (h *Hash) RandIndex() uint {
+	if h.nElts == 0 {
+		panic("hash empty")
+	}
+	return h.nextValidIndex(^uint(0), uint(rand.Intn(int(h.nElts))))
+}
+
+func (h *Hash) Elts() uint         { return h.nElts }
+func (h *Hash) Cap() uint          { return uint(h.cap) }
+func (h *Hash) IsFree(i uint) bool { return !h.bitDiffs[i].isValid() }
 
 func (h *Hash) Get(k HasherKey) (i uint, ok bool) {
 	if h.empty() {
