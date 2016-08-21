@@ -353,7 +353,7 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 	p.refs = p.refs[:got-want]
 
 	if elib.Debug {
-		for i := range refs {
+		for i := uint(0); i < uint(len(refs)); i += stride {
 			s := p.setState(&refs[i], allocStateKnownAllocated)
 			if s == allocStateKnownAllocated {
 				panic("duplicate alloc")
