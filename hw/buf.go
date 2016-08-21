@@ -409,7 +409,6 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 	p.refs.Resize(n)
 	r := p.refs[initialLen:]
 
-	// We'll follow and add next pointers even if freeNext is false.
 	p.freeNext.count = 0
 
 	t := p.Ref
@@ -430,10 +429,12 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 		i += 4
 		n -= 4
 		if RefFlag4(NextValid, r0.h(), r1.h(), r2.h(), r3.h()) {
-			p.freeNext.add(p, r0, n0)
-			p.freeNext.add(p, r1, n1)
-			p.freeNext.add(p, r2, n2)
-			p.freeNext.add(p, r3, n3)
+			if freeNext {
+				p.freeNext.add(p, r0, n0)
+				p.freeNext.add(p, r1, n1)
+				p.freeNext.add(p, r2, n2)
+				p.freeNext.add(p, r3, n3)
+			}
 		}
 	}
 
@@ -447,11 +448,13 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 		i += 1
 		n -= 1
 		if RefFlag1(NextValid, r0.h()) {
-			p.freeNext.add(p, r0, n0)
+			if freeNext {
+				p.freeNext.add(p, r0, n0)
+			}
 		}
 	}
 
-	if f := &p.freeNext; f.count > 0 && freeNext {
+	if f := &p.freeNext; f.count > 0 {
 		n = f.count
 		l := len(p.refs)
 		p.refs.Resize(n)
