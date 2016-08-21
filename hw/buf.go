@@ -127,9 +127,14 @@ type Buffer struct {
 func (b *Buffer) reset(p *BufferPool) { *b = p.Buffer }
 
 type BufferPool struct {
-	mu sync.Mutex
+	m *BufferMain
+
+	Name string
 
 	BufferTemplate
+
+	// Mutually excludes allocate and free.
+	mu sync.Mutex
 
 	// References to buffers in this pool.
 	refs RefVec
@@ -141,8 +146,6 @@ type BufferPool struct {
 	DmaMemAllocBytes uint64
 
 	freeNext freeNext
-
-	stateByOffset map[uint32]allocState
 }
 
 type allocState uint8
@@ -162,16 +165,18 @@ var allocStateStrings = [...]string{
 func (s allocState) String() string { return elib.Stringer(allocStateStrings[:], int(s)) }
 
 func (p *BufferPool) setState(r *Ref, new allocState) (old allocState) {
-	if p.stateByOffset == nil {
-		p.stateByOffset = make(map[uint32]allocState)
+	p.m.Lock()
+	defer p.m.Unlock()
+	if p.m.bufferStateByOffset == nil {
+		p.m.bufferStateByOffset = make(map[uint32]allocState)
 	}
 	o := r.offset()
-	old = p.stateByOffset[o]
-	p.stateByOffset[o] = new
+	old = p.m.bufferStateByOffset[o]
+	p.m.bufferStateByOffset[o] = new
 	return
 }
 
-func (p *BufferPool) getState(r *Ref) allocState { return p.stateByOffset[r.offset()] }
+func (p *BufferPool) getState(r *Ref) allocState { return p.m.bufferStateByOffset[r.offset()] }
 
 // Method to over-ride to initialize refs for this buffer pool.
 // This is used for example to set packet lengths, adjust packet fields, etc.
@@ -198,9 +203,6 @@ func (p *BufferPool) bufferSize() uint {
 	return nLines * cpu.CacheLineBytes
 }
 
-var defaultRef = Ref{RefHeader: RefHeader{dataOffset: BufferRewriteBytes}}
-var defaultBuf = Buffer{}
-
 type BufferTemplate struct {
 	// Data size of buffers.
 	Size uint
@@ -218,9 +220,12 @@ func (t *BufferTemplate) SizeIncludingOverhead() uint { return t.sizeIncludingOv
 
 var DefaultBufferTemplate = &BufferTemplate{
 	Size: 512,
-	Ref:  defaultRef,
+	Ref:  Ref{RefHeader: RefHeader{dataOffset: BufferRewriteBytes}},
 }
-var DefaultBufferPool = NewBufferPool(DefaultBufferTemplate)
+var DefaultBufferPool = &BufferPool{
+	Name:           "default",
+	BufferTemplate: *DefaultBufferTemplate,
+}
 
 func (p *BufferPool) Init() {
 	t := &p.BufferTemplate
@@ -232,14 +237,37 @@ func (p *BufferPool) Init() {
 	p.Size = p.sizeIncludingOverhead - overheadBytes
 }
 
-func NewBufferPool(t *BufferTemplate) (p *BufferPool) {
-	p = &BufferPool{}
-	p.BufferTemplate = *t
-	p.Init()
-	return
+type BufferMain struct {
+	sync.Mutex
+
+	PoolByName map[string]*BufferPool
+
+	bufferStateByOffset map[uint32]allocState
 }
 
-func (p *BufferPool) Del() {
+func (m *BufferMain) Init() { m.AddBufferPool(DefaultBufferPool) }
+
+func (m *BufferMain) AddBufferPool(p *BufferPool) {
+	p.m = m
+	if len(p.Name) == 0 {
+		p.Name = "no-name"
+	}
+	m.Lock()
+	if m.PoolByName == nil {
+		m.PoolByName = make(map[string]*BufferPool)
+	}
+	if _, ok := m.PoolByName[p.Name]; ok {
+		panic("duplicate pool name: " + p.Name)
+	}
+	m.PoolByName[p.Name] = p
+	m.Unlock()
+	p.Init()
+}
+
+func (m *BufferMain) DelBufferPool(p *BufferPool) {
+	m.Lock()
+	delete(m.PoolByName, p.Name)
+	m.Unlock()
 	for i := range p.memChunkIDs {
 		DmaFree(p.memChunkIDs[i])
 	}
