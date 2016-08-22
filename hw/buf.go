@@ -149,34 +149,42 @@ type BufferPool struct {
 	freeNext freeNext
 }
 
-type allocState uint8
+type bufferState uint8
 
 const (
-	allocStateUnknown = iota
-	allocStateKnownAllocated
-	allocStateKnownFree
+	BufferUnknown = iota
+	BufferKnownAllocated
+	BufferKnownFree
 )
 
-var allocStateStrings = [...]string{
-	allocStateUnknown:        "unkown",
-	allocStateKnownAllocated: "known-allocated",
-	allocStateKnownFree:      "known-free",
+var bufferStateStrings = [...]string{
+	BufferUnknown:        "unkown",
+	BufferKnownAllocated: "known-allocated",
+	BufferKnownFree:      "known-free",
 }
 
-func (s allocState) String() string { return elib.Stringer(allocStateStrings[:], int(s)) }
+func (s bufferState) String() string { return elib.Stringer(bufferStateStrings[:], int(s)) }
 
-func (p *BufferPool) setState(offset uint32, new allocState) (old allocState) {
+var trackBufferState = elib.Debug
+
+func (p *BufferPool) setState(offset uint32, new bufferState) (old bufferState) {
 	p.m.Lock()
 	defer p.m.Unlock()
 	if p.m.bufferStateByOffset == nil {
-		p.m.bufferStateByOffset = make(map[uint32]allocState)
+		p.m.bufferStateByOffset = make(map[uint32]bufferState)
 	}
 	old = p.m.bufferStateByOffset[offset]
 	p.m.bufferStateByOffset[offset] = new
 	return
 }
 
-func (p *BufferPool) getState(r *Ref) allocState { return p.m.bufferStateByOffset[r.offset()] }
+func (r *RefHeader) ValidateState(m *BufferMain, want bufferState) (invalid bool) {
+	if trackBufferState {
+		got := m.bufferStateByOffset[r.offset()]
+		invalid = got != want
+	}
+	return
+}
 
 // Method to over-ride to initialize refs for this buffer pool.
 // This is used for example to set packet lengths, adjust packet fields, etc.
@@ -242,7 +250,7 @@ type BufferMain struct {
 
 	PoolByName map[string]*BufferPool
 
-	bufferStateByOffset map[uint32]allocState
+	bufferStateByOffset map[uint32]bufferState
 }
 
 func (m *BufferMain) Init() { m.AddBufferPool(DefaultBufferPool) }
@@ -352,10 +360,10 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 
 	p.refs = p.refs[:got-want]
 
-	if elib.Debug {
+	if trackBufferState {
 		for i := uint(0); i < uint(len(refs)); i += stride {
-			s := p.setState(refs[i].offset(), allocStateKnownAllocated)
-			if s == allocStateKnownAllocated {
+			s := p.setState(refs[i].offset(), BufferKnownAllocated)
+			if s == BufferKnownAllocated {
 				panic("duplicate alloc")
 			}
 		}
@@ -374,8 +382,8 @@ func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
 		return
 	}
 	for {
-		s := p.setState(nextRef.offset(), allocStateKnownFree)
-		if s != allocStateKnownAllocated {
+		s := p.setState(nextRef.offset(), BufferKnownFree)
+		if s != BufferKnownAllocated {
 			panic(duplicateFreeErr)
 		}
 		f.refs.Validate(f.count)
@@ -396,10 +404,10 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
 
-	if elib.Debug {
+	if trackBufferState {
 		for i := range toFree {
-			s := p.setState(toFree[i].offset(), allocStateKnownFree)
-			if s != allocStateKnownAllocated {
+			s := p.setState(toFree[i].offset(), BufferKnownFree)
+			if s != BufferKnownAllocated {
 				panic(duplicateFreeErr)
 			}
 		}
