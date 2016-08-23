@@ -8,6 +8,7 @@ import (
 
 	"fmt"
 	"sort"
+	"time"
 )
 
 type LoopCli struct {
@@ -67,6 +68,8 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (e
 	for i := range l.DataNodes {
 		n := l.DataNodes[i].GetNode()
 		var s [2]stats
+		s[0].add(&n.inputStats)
+		s[1].add(&n.outputStats)
 		l.activePollerPool.Foreach(func(a *activePoller) {
 			if a.activeNodes != nil {
 				s[0].add(&a.activeNodes[i].inputStats)
@@ -97,7 +100,8 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (e
 			s.add(&a.pollerStats)
 		})
 		if s.calls > 0 {
-			vecsPerSec := float64(s.vectors) / l.Seconds(s.clocks)
+			dt := time.Since(l.timeLastRuntimeClear).Seconds()
+			vecsPerSec := float64(s.vectors) / dt
 			clocksPerVec := float64(s.clocks) / float64(s.vectors)
 			vecsPerCall := float64(s.vectors) / float64(s.calls)
 			fmt.Fprintf(w, "Vectors: %d, Vectors/sec: %.2e, Clocks/vector: %.2f, Vectors/call %.2f\n",
@@ -111,6 +115,12 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (e
 }
 
 func (l *Loop) clearRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
+	l.timeLastRuntimeClear = time.Now()
+	for i := range l.DataNodes {
+		n := l.DataNodes[i].GetNode()
+		n.inputStats.clear()
+		n.outputStats.clear()
+	}
 	l.activePollerPool.Foreach(func(a *activePoller) {
 		a.pollerStats.clear()
 		for j := range a.activeNodes {

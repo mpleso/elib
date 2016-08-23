@@ -19,11 +19,20 @@ type nodeStats struct {
 
 func (s *nodeStats) clear() { s.lastClear = s.current }
 
-func (s *stats) add(n *nodeStats) {
-	s.calls += n.current.calls - n.lastClear.calls
-	s.vectors += n.current.vectors - n.lastClear.vectors
-	s.clocks += n.current.clocks - n.lastClear.clocks
+func (s *stats) add_helper(n *nodeStats, raw bool) {
+	c, v, l := n.current.calls, n.current.vectors, n.current.clocks
+	if !raw {
+		c -= n.lastClear.calls
+		v -= n.lastClear.vectors
+		l -= n.lastClear.clocks
+	}
+	s.calls += c
+	s.vectors += v
+	s.clocks += l
 }
+
+func (s *stats) add(n *nodeStats)     { s.add_helper(n, false) }
+func (s *stats) add_raw(n *nodeStats) { s.add_helper(n, true) }
 
 func (s *stats) clocksPerVector() (v float64) {
 	if s.vectors != 0 {

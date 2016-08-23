@@ -14,23 +14,24 @@ import (
 )
 
 type Node struct {
-	name                string
-	index               uint
-	loop                *Loop
-	rxEvents            chan event.Actor
-	toLoop              chan struct{}
-	fromLoop            chan struct{}
-	eventVec            event.ActorVec
-	active              bool
-	polling             bool
-	suspended           bool
-	dataCaller          inOutLooper
-	activePollerIndex   uint
-	initOnce            sync.Once
-	initWg              sync.WaitGroup
-	Next                []string
-	nextNodes           nextNodeVec
-	nextIndexByNodeName map[string]uint
+	name                    string
+	index                   uint
+	loop                    *Loop
+	rxEvents                chan event.Actor
+	toLoop                  chan struct{}
+	fromLoop                chan struct{}
+	eventVec                event.ActorVec
+	active                  bool
+	polling                 bool
+	suspended               bool
+	dataCaller              inOutLooper
+	activePollerIndex       uint
+	initOnce                sync.Once
+	initWg                  sync.WaitGroup
+	Next                    []string
+	nextNodes               nextNodeVec
+	nextIndexByNodeName     map[string]uint
+	inputStats, outputStats nodeStats
 }
 
 type nextNode struct {
@@ -67,6 +68,11 @@ func (n *Node) allocActivePoller(l *Loop) {
 
 func (n *Node) freeActivePoller(l *Loop) {
 	a := n.getActivePoller(l)
+	an := a.currentNode
+	n.inputStats.current.add_raw(&an.inputStats)
+	n.outputStats.current.add_raw(&an.outputStats)
+	an.inputStats.clear()
+	an.outputStats.clear()
 	a.pollerNode = nil
 	i := n.activePollerIndex
 	l.activePollerPool.PutIndex(i)
@@ -133,6 +139,7 @@ type Loop struct {
 	cyclesPerSec           float64
 	secsPerCycle           float64
 	timeDurationPerCycle   float64
+	timeLastRuntimeClear   time.Time
 
 	Cli LoopCli
 }
@@ -442,6 +449,7 @@ func (l *Loop) Run() {
 
 	l.timerInit()
 	l.startTime = cpu.TimeNow()
+	l.timeLastRuntimeClear = time.Now()
 	l.cliInit()
 	l.eventInit()
 	l.startPollers()
