@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"unsafe"
 )
 
 var sysBusPciPath string = "/sys/bus/pci/devices"
@@ -74,7 +75,7 @@ func (d *Device) WriteConfigUint16(offset uint, value uint16) (err error) {
 	return
 }
 
-func (d *Device) MapResource(r *Resource) (err error) {
+func (d *Device) MapResource(r *Resource) (res unsafe.Pointer, err error) {
 	var f *os.File
 	f, err = d.SysfsOpenFile("resource%d", os.O_RDWR, r.Index)
 	if err != nil {
@@ -83,8 +84,10 @@ func (d *Device) MapResource(r *Resource) (err error) {
 	defer f.Close()
 	r.Mem, err = syscall.Mmap(int(f.Fd()), 0, int(r.Size), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
-		return fmt.Errorf("mmap resource%d: %s", r.Index, err)
+		err = fmt.Errorf("mmap resource%d: %s", r.Index, err)
+		return
 	}
+	res = unsafe.Pointer(&r.Mem[0])
 	return
 }
 
