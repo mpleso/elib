@@ -54,17 +54,24 @@ func (hs *Deps) orderHelper(h *Dep, b elib.Bitmap) elib.Bitmap {
 	return b
 }
 
-func (hs *Deps) Index(i int) int {
+func (d *Deps) index(i int, isForward bool) int {
 	// No dependencies?  Use slice order.
-	if hs.elts == nil {
+	if d.elts == nil {
 		return i
 	}
-	if !hs.isOrdered {
-		hs.isOrdered = true
-		hs.sort()
+	if !d.isOrdered {
+		d.isOrdered = true
+		d.sort()
 	}
-	return int(hs.order[i])
+	if isForward {
+		return int(d.order[i])
+	} else {
+		return int(d.order[len(d.order)-1-i])
+	}
 }
+
+func (d *Deps) Index(i int) int        { return d.index(i, true) }
+func (d *Deps) IndexReverse(i int) int { return d.index(i, false) }
 
 // Indicate dependency.
 func (h0 *Dep) dependsOn(h1 *Dep) { h0.depIndices = h0.depIndices.Set(uint(h1.index)) }
