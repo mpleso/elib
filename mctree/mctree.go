@@ -257,14 +257,17 @@ type tree_cost struct {
 	cost              float64
 }
 
-// Cost is mean square occupancy.
-// Asymptotics: all N pairs in a single leaf => cost = 1;
-// all N pairs evenly spread among L leafs => cost = L*(N/L)^2/N^2 = 1/L
 func (c *tree_cost) compute_cost(m *Main) {
-	c.cost = c.occupancy2 / (m.totalPairs * m.totalPairs)
-	c.cost *= c.occupancy / m.totalPairs
-	if c.cost < 0 {
-		panic("negative cost")
+	n := m.n_pairs()
+	if n == 0 {
+		c.cost = 0
+	} else {
+		np := float64(n)
+		c.cost = c.occupancy2 / (np * np)
+		c.cost *= c.occupancy / np
+		if c.cost < 0 {
+			panic("negative cost")
+		}
 	}
 }
 
@@ -308,9 +311,6 @@ type Main struct {
 
 	shared_pair_offsets_pool
 
-	// Used to normalize cost function.
-	totalPairs float64
-
 	// Temperature for simulated annealing.
 	temperature float64
 
@@ -335,6 +335,7 @@ type Main struct {
 	validate_main
 }
 
+func (m *Main) n_pairs() uint                 { return m.pair_hash.hash.Elts() }
 func (m *Main) get_tree_seq(seq uint32) *tree { return &m.trees[seq&1] }
 func (m *Main) get_tree() *tree               { return m.get_tree_seq(m.tree_sequence) }
 func (m *Main) get_min_tree() *tree {
@@ -638,7 +639,6 @@ func (m *Main) is_joinable(sub, sup *node) (ok bool) {
 func (m *Main) new_root(l uint) (n *node, t *tree) {
 	t = m.get_tree()
 	t.root_node_index = m.new_node(m.tree_sequence)
-	m.totalPairs = float64(l)
 	n = m.get_node(t.root_node_index)
 	n.pair_offsets.get(m, l)
 	t.n_non_empty_leafs = 1
@@ -662,6 +662,7 @@ func (m *Main) add_del_key_leaf(t *tree, key []Pair, node *node, is_del bool) {
 				panic("not found")
 			}
 			po.vec[i] = pair_offset_invalid
+			m.pair_hash.unset(key)
 			// Occupancy^2 decreases from l^2 to (l-1)^2 = l^2 - 2l + 1
 			t.occupancy -= 1
 			t.occupancy2 += 1 - 2*float64(l)
@@ -669,6 +670,7 @@ func (m *Main) add_del_key_leaf(t *tree, key []Pair, node *node, is_del bool) {
 			i, exists := po.hash.Set(o)
 			po.vec[i] = o
 			if !exists {
+				m.pair_hash.set(key)
 				// Occupancy^2 increases from l^2 to (l+1)^2 = l^2 + 2l + 1
 				t.occupancy += 1
 				t.occupancy2 += 1 + 2*float64(l)
@@ -722,11 +724,17 @@ func (m *Main) Step() (lower_cost_found bool) {
 	// Choose a random leaf (sub) and leaf's parent (sup).
 	sub, sup := m.random_leaf()
 	accepted := false
+	max_leafs := m.Max_leafs
+	// Never allow more leafs than we have pairs.
+	if np := m.n_pairs(); max_leafs < np {
+		max_leafs = np
+	}
+
 	switch {
 	case m.random_bit() != 0 && m.is_joinable(sub, sup):
 		// Try to join child with parent.
 		accepted = sup.join(m)
-	case t.n_non_empty_leafs+1 <= float64(m.Max_leafs) &&
+	case t.n_non_empty_leafs+1 <= float64(max_leafs) &&
 		sub.n_pairs() >= m.Min_pairs_for_split:
 		// Try to split sub in 2 using random masked bit.
 		if bit, ok := sub.random_masked_bit(m); ok {
@@ -754,6 +762,10 @@ func (m *Main) Step() (lower_cost_found bool) {
 }
 
 func (m *Main) Init(l uint, f func(i uint, p []Pair)) {
+	for i := range m.trees {
+		m.trees[i].Main = m
+	}
+
 	m.n_pairs_per_key = m.Key_bits / 32
 	if m.Key_bits%32 != 0 {
 		m.n_pairs_per_key++
@@ -776,6 +788,8 @@ func (m *Main) Init(l uint, f func(i uint, p []Pair)) {
 			}
 		}
 	}
+
+	m.get_tree().compute_cost(m)
 
 	// Set initial sequence number.  We've initialized sequence 0; we'll optimize tree 1.
 	// Tree will be copied on first optimize iteration.
@@ -857,10 +871,11 @@ func (m *Main) Print(i uint, start time.Time, verbose bool) {
 	t := m.get_min_tree()
 	ts := tree_stats{}
 	ts.count_tree(m, t)
+	np := float64(m.n_pairs())
 	fmt.Printf("%8d: tree sequence %d cost %e leafs %f per leaf %f occupancy %f pairs %d pairvecs\n  join %+v split %+v restarts %d\n  elapsed time: %s\n%s",
 		i,
 		m.tree_sequence, t.cost, t.n_non_empty_leafs, t.occupancy/t.n_non_empty_leafs,
-		t.occupancy/m.totalPairs, m.shared_pair_offsets_pool.Elts(),
+		t.occupancy/np, m.shared_pair_offsets_pool.Elts(),
 		&m.stats.join, &m.stats.split, m.stats.n_restart,
 		time.Since(start),
 		&ts)

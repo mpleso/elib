@@ -134,6 +134,7 @@ func (h *pair_hash) unset(p []Pair) (o pair_offset, ok bool) {
 			v.poison()
 		}
 		o = h.pair_offset_by_hash_index[i]
+		h.pairs_pool.PutIndex(uint(o) / h.n_pairs_per_key)
 		h.pair_offset_by_hash_index[i] = pair_offset_invalid
 	}
 	return
