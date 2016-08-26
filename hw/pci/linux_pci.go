@@ -158,7 +158,7 @@ func DiscoverDevices() (err error) {
 				i++
 				is64bit := (bar>>1)&3 == 2
 				if is64bit {
-					r.BAR[1] = d.Config.BaseAddressRegs[i+1]
+					r.BAR[1] = d.Config.BaseAddressRegs[i]
 					r.Base |= uint64(r.BAR[1]) << 32
 					i++
 				}
