@@ -939,7 +939,7 @@ func (m *Main) Print(i uint, start time.Time, verbose bool) {
 	ts := tree_stats{}
 	ts.count_tree(m, t)
 	np := float64(m.n_pairs())
-	fmt.Printf("%8d: tree sequence %d cost %e leafs %f per leaf %f q %f occupancy %f pairs %d pairvecs\n  join %+v split %+v restarts %d\n  elapsed time: %s\n%s",
+	fmt.Printf("iteration %8d: tree sequence %d cost %e leafs %f per leaf %f q %f occupancy %f pairs %d pairvecs\n  join %+v split %+v restarts %d\n  elapsed time: %s\n%s",
 		i,
 		m.tree_sequence, t.cost, t.n_non_empty_leafs, t.occupancy/t.n_non_empty_leafs,
 		t.compute_q(m),

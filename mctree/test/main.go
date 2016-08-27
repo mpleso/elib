@@ -230,7 +230,7 @@ func (test *test) optimize_table() {
 	for i := range test.routes {
 		r := &test.routes[i]
 		var p [1]mctree.Pair
-		if r.Dst.Len == 0 {
+		if r.Dst.Len == 0 { // ignore default route
 			continue
 		}
 		ip4_pair(&r.Dst, &p[0])
