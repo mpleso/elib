@@ -113,8 +113,9 @@ func (h *pair_hash) init(n, cap uint) {
 	h.n_pairs_per_key = n
 }
 
-func (h *pair_hash) set(p []Pair) (o pair_offset) {
-	if i, exists := h.hash.Set(pair_vec(p)); exists {
+func (h *pair_hash) set(p []Pair) (o pair_offset, exists bool) {
+	if i, ok := h.hash.Set(pair_vec(p)); ok {
+		exists = true
 		o = h.pair_offset_by_hash_index[i]
 	} else {
 		pi := h.pairs_pool.GetIndex(h.pairs.Len())

@@ -715,39 +715,27 @@ func (m *Main) add_del_key_leaf(t *tree, key []Pair, node *node, is_del bool) {
 
 	var (
 		i      uint
+		o      pair_offset
 		exists bool
 	)
-	if o, found := m.pair_hash.get(key); found {
-		if is_del {
-			i, exists = po.hash.Unset(o)
-			if !exists {
-				panic("not found")
-			}
-			po.vec[i] = pair_offset_invalid
-			m.pair_hash.unset(key)
-		} else {
-			i, exists := po.hash.Set(o)
-			po.vec[i] = o
-			if !exists {
-				m.pair_hash.set(key)
-			}
+	if o, exists = m.pair_hash.get(key); !exists {
+		panic("key not found")
+	}
+	if is_del {
+		i, exists = po.hash.Unset(o)
+		if !exists {
+			panic("offset not found")
 		}
+		po.vec[i] = pair_offset_invalid
 	} else {
-		o = m.pair_hash.set(key)
 		if po.pool_index == invalid {
 			po.get(m, po.hash.Cap())
 		}
-		i, exists = po.hash.Set(o)
+		i, _ := po.hash.Set(o)
 		po.vec.Validate(i)
 		po.vec[i] = o
-
-		if m.validate_all_pairs != nil {
-			m.validate_all_pairs[newMaxPair(key)] = true
-		}
 	}
-	if is_del || !exists {
-		t.add_del_occupancy(m, l, is_del)
-	}
+	t.add_del_occupancy(m, l, is_del)
 }
 
 func (m *Main) add_del_key_helper(t *tree, key []Pair, ni node_index, is_del bool) {
@@ -771,7 +759,24 @@ func (m *Main) AddDel(p []Pair, is_del bool) {
 	// Cancels any optimizing steps currently in progress.
 	m.restart()
 	t := m.get_tree_seq(m.tree_sequence - 1)
+
+	if !is_del {
+		if _, exists := m.pair_hash.set(p); !exists {
+			if m.validate_all_pairs != nil {
+				m.validate_all_pairs[newMaxPair(p)] = true
+			}
+		}
+	}
+
 	m.add_del_key_helper(t, p, t.root_node_index, is_del)
+
+	if is_del {
+		m.pair_hash.unset(p)
+		if m.validate_all_pairs != nil {
+			delete(m.validate_all_pairs, newMaxPair(p))
+		}
+	}
+
 	t.compute_cost(m)
 	m.validate_main.add_del_pair(p, is_del)
 }

@@ -40,6 +40,7 @@ type test struct {
 	seed int64
 
 	iter          uint
+	n_iter        uint
 	validate_iter uint
 	print_iter    uint
 	add_del_iter  uint
@@ -156,7 +157,7 @@ func main() {
 	flag.StringVar(&t.save_tree_path, "save-tree", "", "Path to save final tree to")
 	flag.StringVar(&t.load_tree_path, "load-tree", "", "Path to load initial tree")
 	flag.Int64Var(&t.seed, "seed", 0, "Seed for random number generator")
-	flag.UintVar(&t.iter, "iter", 1, "Number of iterations to run")
+	flag.UintVar(&t.n_iter, "iter", 1, "Number of iterations to run")
 	flag.UintVar(&cf.Validate_iter, "validate", 0, "Number of iterations between validate (0 means disable)")
 	flag.UintVar(&t.print_iter, "print", 0, "Number of iterations between prints (0 means disable)")
 	flag.UintVar(&t.add_del_iter, "add-del", 0, "Number of iterations between random add/del (0 means disable)")
@@ -242,10 +243,9 @@ func (test *test) optimize_table() {
 	// even better: use parallel tempering.
 	m.SetTemperature(1e-6)
 
-	var i uint
 	defer func() {
 		if e := recover(); e != nil {
-			panic(fmt.Errorf("validate fails iter %d: %s", i, e))
+			panic(fmt.Errorf("validate fails iter %d: %s", test.iter, e))
 		}
 	}()
 
@@ -255,7 +255,8 @@ func (test *test) optimize_table() {
 	start := time.Now()
 	m.Print(0, start, test.verbose != 0)
 
-	for i = uint(0); i < test.iter; i++ {
+	for test.iter = 0; test.iter < test.n_iter; test.iter++ {
+		i := test.iter
 		if test.print_iter != 0 && i%test.print_iter == 0 {
 			m.Print(i, start, test.verbose != 0)
 		}
@@ -282,7 +283,7 @@ func (test *test) optimize_table() {
 		}
 	}
 
-	m.Print(i, start, test.verbose != 0)
+	m.Print(test.iter, start, test.verbose != 0)
 
 	if len(test.save_tree_path) > 0 {
 		if err := m.Save(test.save_tree_path); err != nil {
