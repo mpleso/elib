@@ -74,7 +74,7 @@ func (t *tree) validate_node(i node_index, key *maxPair, cost *tree_cost, n_pair
 		if po.pool_index != invalid {
 			t.validate_referenced_pairs[po.pool_index] += 1
 		}
-		for i, o := range n.pair_offsets.vec {
+		for i, o := range po.vec {
 			if n.index_is_free(uint(i)) {
 				continue
 			}
