@@ -30,7 +30,8 @@ type ip4_route struct {
 type test struct {
 	route_views_path, load_path, save_path string
 
-	cpu_profile_file string
+	cpu_profile_file               string
+	load_tree_path, save_tree_path string
 
 	// Instead of reading routes from route-views table generate sequential
 	// table of the form 10.X/24 for incrementing X.
@@ -152,6 +153,8 @@ func main() {
 	cf := &t.mctree.Config
 	flag.StringVar(&t.load_path, "load", "", "Path to routing table to load")
 	flag.StringVar(&t.save_path, "save", "", "Path to routing table to save")
+	flag.StringVar(&t.save_tree_path, "save-tree", "", "Path to save final tree to")
+	flag.StringVar(&t.load_tree_path, "load-tree", "", "Path to load initial tree")
 	flag.Int64Var(&t.seed, "seed", 0, "Seed for random number generator")
 	flag.UintVar(&t.iter, "iter", 1, "Number of iterations to run")
 	flag.UintVar(&cf.Validate_iter, "validate", 0, "Number of iterations between validate (0 means disable)")
@@ -216,9 +219,22 @@ func (test *test) optimize_table() {
 	m := &test.mctree
 
 	m.Config.Key_bits = ip4.AddressBits
-	m.Init(uint(len(test.routes)), func(i uint, p []mctree.Pair) {
-		ip4_pair(&test.routes[i].Dst, &p[0])
-	})
+
+	m.Init()
+	if len(test.load_tree_path) > 0 {
+		if err := m.Restore(test.load_tree_path); err != nil {
+			panic(err)
+		}
+	}
+	for i := range test.routes {
+		r := &test.routes[i]
+		var p [1]mctree.Pair
+		if r.Dst.Len == 0 {
+			continue
+		}
+		ip4_pair(&r.Dst, &p[0])
+		m.AddDel(p[:], false)
+	}
 
 	fmt.Println("seed: ", test.seed)
 
@@ -244,7 +260,8 @@ func (test *test) optimize_table() {
 			m.Print(i, start, test.verbose != 0)
 		}
 
-		m.Step()
+		if lower_cost_found := m.Step(); lower_cost_found {
+		}
 
 		if m.Validate_iter != 0 && i%m.Validate_iter == 0 {
 			m.Validate()
@@ -266,4 +283,11 @@ func (test *test) optimize_table() {
 	}
 
 	m.Print(i, start, test.verbose != 0)
+
+	if len(test.save_tree_path) > 0 {
+		if err := m.Save(test.save_tree_path); err != nil {
+			panic(err)
+		}
+		return
+	}
 }

@@ -42,7 +42,9 @@ func (p *pair_offsets) HashResize(newCap uint, rs []elib.HashResizeCopy) {
 	for i := range rs {
 		d.vec[rs[i].Dst] = p.vec[rs[i].Src]
 	}
-	p.put(m)
+	if p.pool_index != invalid {
+		p.put(m)
+	}
 	// Replace with new vector/pool index.
 	p.vec = d.vec
 	p.pool_index = d.pool_index
@@ -65,9 +67,12 @@ func (p *pair_offsets) get(m *Main, l uint) {
 	p.pool_index = i
 }
 
-func (p *pair_offsets) put(m *Main) { m.put_pair_offsets(p.vec, p.pool_index) }
+func (p *pair_offsets) put(m *Main) (freed bool) {
+	freed = m.put_pair_offsets(p.vec, p.pool_index)
+	return
+}
 
-func (m *Main) put_pair_offsets(vec pair_offset_vec, pool_index uint) {
+func (m *Main) put_pair_offsets(vec pair_offset_vec, pool_index uint) (freed bool) {
 	if m.shared_pair_offsets_pool.IsFree(pool_index) {
 		panic("put free index")
 	}
@@ -77,9 +82,11 @@ func (m *Main) put_pair_offsets(vec pair_offset_vec, pool_index uint) {
 	}
 	sp.reference_count--
 	if sp.reference_count == 0 {
+		freed = true
 		sp.vec = vec
 		m.shared_pair_offsets_pool.PutIndex(pool_index)
 	}
+	return
 }
 
 func (p *pair_offsets) add_reference(m *Main) {
@@ -94,6 +101,7 @@ func (p *pair_offsets) add_reference(m *Main) {
 }
 
 func (p *pair_offsets) invalidate() {
+	p.hash_valid = false
 	p.vec = nil
 	p.pool_index = invalid
 }
@@ -115,6 +123,9 @@ type node_clone_copy struct {
 
 func (m *Main) get_node_key(i node_index) []Pair {
 	return m.node_keys.get_pairs_for_index(uint(i), m.n_pairs_per_key)
+}
+func (m *Main) validate_node_key(i node_index) {
+	m.node_keys.Validate(uint(i+1)*m.n_pairs_per_key - 1)
 }
 
 type node struct {
@@ -163,12 +174,15 @@ func (p *pair_offsets) hash_validate(m *Main) {
 		h.Init(p, p.vec.Len())
 	} else {
 		h.Hasher = p
+		h.Clear()
 	}
 	for _, o := range save_vec {
 		i, _ := h.Set(o)
 		p.vec[i] = o
 	}
-	m.put_pair_offsets(save_vec, save_pool_index)
+	if save_pool_index != invalid {
+		m.put_pair_offsets(save_vec, save_pool_index)
+	}
 }
 
 //go:generate gentemplate -d Package=mctree -id node -d PoolType=node_pool -d Type=node -d Data=nodes github.com/platinasystems/elib/pool.tmpl
@@ -183,7 +197,8 @@ func (m *Main) new_node(seq uint32) (ni node_index) {
 	n.index = ni
 	n.sub_nodes[0] = invalid_node_index
 	n.sub_nodes[1] = invalid_node_index
-	m.node_keys.Validate(uint(ni))
+	n.pair_offsets.invalidate()
+	m.validate_node_key(ni)
 	return
 }
 
@@ -204,7 +219,7 @@ func index(bit uint) (b0, b1 word) {
 	return
 }
 
-func (n *node) alloc_subs(m *Main, l, bit uint) (new_n, n0, n1 *node) {
+func (n *node) alloc_subs(m *Main, bit uint) (new_n, n0, n1 *node) {
 	ni0 := m.new_node(m.tree_sequence)
 	ni1 := m.new_node(m.tree_sequence)
 	n0, n1 = m.get_node(ni0), m.get_node(ni1)
@@ -227,7 +242,9 @@ func (n *node) alloc_subs(m *Main, l, bit uint) (new_n, n0, n1 *node) {
 
 func (n *node) free_pairs(m *Main) {
 	if n.pair_offsets.pool_index != invalid {
-		n.pair_offsets.put(m)
+		if n.pair_offsets.put(m) {
+			n.pair_offsets.hash_invalidate()
+		}
 	}
 	n.pair_offsets.invalidate()
 }
@@ -251,10 +268,30 @@ func (n *node) index_is_free(i uint) bool {
 }
 
 type tree_cost struct {
-	occupancy         float64
+	// Total number of pairs in all leafs.
+	// A pair may be in multiple leafs so this is always >= number of pairs.
+	occupancy float64
+
+	// Sum of squares of leaf occupancy.  Used to compute cost.
+	occupancy2 float64
+
+	// Number of non-empty leafs.
 	n_non_empty_leafs float64
-	occupancy2        float64
-	cost              float64
+
+	cost float64
+}
+
+// Measures log2 (current/ideal) occupancy.
+func (c *tree_cost) compute_q(m *Main) (q float64) {
+	have := c.occupancy / c.n_non_empty_leafs
+	np := m.n_pairs()
+	max_leafs := m.Max_leafs
+	if max_leafs > np {
+		max_leafs = np
+	}
+	ideal := float64(np) / float64(max_leafs)
+	q = math.Log2(have / ideal)
+	return
 }
 
 func (c *tree_cost) compute_cost(m *Main) {
@@ -269,6 +306,25 @@ func (c *tree_cost) compute_cost(m *Main) {
 			panic("negative cost")
 		}
 	}
+}
+
+func (c *tree_cost) add_del_occupancy(m *Main, l uint, isDel bool) {
+	if isDel {
+		// Occupancy^2 decreases from l^2 to (l-1)^2 = l^2 - 2l + 1
+		c.occupancy -= 1
+		c.occupancy2 += 1 - 2*float64(l)
+		if l == 1 {
+			c.n_non_empty_leafs -= 1
+		}
+	} else {
+		if l == 0 {
+			c.n_non_empty_leafs += 1
+		}
+		// Occupancy^2 increases from l^2 to (l+1)^2 = l^2 + 2l + 1
+		c.occupancy += 1
+		c.occupancy2 += 1 + 2*float64(l)
+	}
+	c.compute_cost(m)
 }
 
 type tree struct {
@@ -420,13 +476,12 @@ func (sup *node) split(m *Main, bit uint) (accept_split bool) {
 	}
 
 	m.stats.split.accepted++
-	sup, n0, n1 := sup.alloc_subs(m, l, bit)
+	sup, n0, n1 := sup.alloc_subs(m, bit)
 	n0.pair_offsets = ps[0]
 	n1.pair_offsets = ps[1]
 	n0.pair_offsets.hash_invalidate()
 	n1.pair_offsets.hash_invalidate()
 	sup.free_pairs(m)
-	sup.hash_invalidate()
 	t.tree_cost = c
 	return
 }
@@ -573,7 +628,8 @@ func (n *node) random_masked_bit(m *Main) (bit uint, ok bool) {
 	po := &n.pair_offsets
 	var o pair_offset
 	if po.hash_valid {
-		o = po.vec[po.hash.RandIndex()]
+		ri := po.hash.RandIndex()
+		o = po.vec[ri]
 	} else {
 		o = po.vec[rand.Intn(int(po.Len()))]
 	}
@@ -641,10 +697,12 @@ func (m *Main) new_root(l uint) (n *node, t *tree) {
 	t.root_node_index = m.new_node(m.tree_sequence)
 	n = m.get_node(t.root_node_index)
 	n.pair_offsets.get(m, l)
-	t.n_non_empty_leafs = 1
-	t.occupancy = float64(l)
-	t.occupancy2 = t.occupancy * t.occupancy
-	t.compute_cost(m)
+	if l > 0 {
+		t.n_non_empty_leafs = 1
+		t.occupancy = float64(l)
+		t.occupancy2 = t.occupancy * t.occupancy
+		t.compute_cost(m)
+	}
 	return
 }
 
@@ -655,27 +713,40 @@ func (m *Main) add_del_key_leaf(t *tree, key []Pair, node *node, is_del bool) {
 
 	l := po.hash.Elts()
 
+	var (
+		i      uint
+		exists bool
+	)
 	if o, found := m.pair_hash.get(key); found {
 		if is_del {
-			i, ok := po.hash.Unset(o)
-			if !ok {
+			i, exists = po.hash.Unset(o)
+			if !exists {
 				panic("not found")
 			}
 			po.vec[i] = pair_offset_invalid
 			m.pair_hash.unset(key)
-			// Occupancy^2 decreases from l^2 to (l-1)^2 = l^2 - 2l + 1
-			t.occupancy -= 1
-			t.occupancy2 += 1 - 2*float64(l)
 		} else {
 			i, exists := po.hash.Set(o)
 			po.vec[i] = o
 			if !exists {
 				m.pair_hash.set(key)
-				// Occupancy^2 increases from l^2 to (l+1)^2 = l^2 + 2l + 1
-				t.occupancy += 1
-				t.occupancy2 += 1 + 2*float64(l)
 			}
 		}
+	} else {
+		o = m.pair_hash.set(key)
+		if po.pool_index == invalid {
+			po.get(m, po.hash.Cap())
+		}
+		i, exists = po.hash.Set(o)
+		po.vec.Validate(i)
+		po.vec[i] = o
+
+		if m.validate_all_pairs != nil {
+			m.validate_all_pairs[newMaxPair(key)] = true
+		}
+	}
+	if is_del || !exists {
+		t.add_del_occupancy(m, l, is_del)
 	}
 }
 
@@ -726,7 +797,7 @@ func (m *Main) Step() (lower_cost_found bool) {
 	accepted := false
 	max_leafs := m.Max_leafs
 	// Never allow more leafs than we have pairs.
-	if np := m.n_pairs(); max_leafs < np {
+	if np := m.n_pairs(); np < max_leafs {
 		max_leafs = np
 	}
 
@@ -761,7 +832,7 @@ func (m *Main) Step() (lower_cost_found bool) {
 	return
 }
 
-func (m *Main) Init(l uint, f func(i uint, p []Pair)) {
+func (m *Main) Init() {
 	for i := range m.trees {
 		m.trees[i].Main = m
 	}
@@ -770,26 +841,17 @@ func (m *Main) Init(l uint, f func(i uint, p []Pair)) {
 	if m.Key_bits%32 != 0 {
 		m.n_pairs_per_key++
 	}
-	m.pair_hash.init(m.n_pairs_per_key, l)
+	if m.n_pairs_per_key == 0 {
+		panic("no pairs")
+	}
 
-	n, _ := m.new_root(l)
+	m.pair_hash.init(m.n_pairs_per_key, 0)
+
 	if m.wantValidate() {
 		m.validate_all_pairs = make(map[maxPair]bool)
 	}
 
-	{
-		p := make([]Pair, m.n_pairs_per_key)
-		for i := uint(0); i < l; i++ {
-			f(i, p)
-			n.pair_offsets.vec[i] = m.pair_hash.set(p)
-			if m.validate_all_pairs != nil {
-				mp := newMaxPair(p)
-				m.validate_all_pairs[mp] = true
-			}
-		}
-	}
-
-	m.get_tree().compute_cost(m)
+	m.new_root(0)
 
 	// Set initial sequence number.  We've initialized sequence 0; we'll optimize tree 1.
 	// Tree will be copied on first optimize iteration.
@@ -872,9 +934,10 @@ func (m *Main) Print(i uint, start time.Time, verbose bool) {
 	ts := tree_stats{}
 	ts.count_tree(m, t)
 	np := float64(m.n_pairs())
-	fmt.Printf("%8d: tree sequence %d cost %e leafs %f per leaf %f occupancy %f pairs %d pairvecs\n  join %+v split %+v restarts %d\n  elapsed time: %s\n%s",
+	fmt.Printf("%8d: tree sequence %d cost %e leafs %f per leaf %f q %f occupancy %f pairs %d pairvecs\n  join %+v split %+v restarts %d\n  elapsed time: %s\n%s",
 		i,
 		m.tree_sequence, t.cost, t.n_non_empty_leafs, t.occupancy/t.n_non_empty_leafs,
+		t.compute_q(m),
 		t.occupancy/np, m.shared_pair_offsets_pool.Elts(),
 		&m.stats.join, &m.stats.split, m.stats.n_restart,
 		time.Since(start),
