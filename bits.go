@@ -111,6 +111,15 @@ func NextSet(x Word) (v Word, i int) {
 }
 func (x Word) NextSet() (Word, int) { return NextSet(x) }
 
+func (x Word) ForeachSetBit(fn func(i uint)) {
+	for x != 0 {
+		f := x.FirstSet()
+		i := f.MinLog2()
+		x ^= f
+		fn(i)
+	}
+}
+
 /* Bit compress: based on "Hacker's Delight" code from GLS. */
 const (
 	log2Uint32Bits = 5
