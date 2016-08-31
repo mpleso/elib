@@ -16,7 +16,7 @@ var (
 
 func basePointer() unsafe.Pointer {
 	// ok for all 32 bit devices.
-	x, err := syscall.Mmap(0, 0, 1<<32, syscall.PROT_READ, syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS|syscall.MAP_NORESERVE)
+	x, err := syscall.Mmap(0, 0, 1<<32, syscall.PROT_READ, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
 	if err != nil {
 		panic(err)
 	}
