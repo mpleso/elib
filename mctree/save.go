@@ -32,7 +32,7 @@ func (t *tree) save_helper(s *treeSave, ni node_index) {
 func (t *tree) restore_helper(s *treeSave, ni node_index) {
 	n := t.get_node(ni)
 	i0, i1 := s.nNodes/64, uint64(1)<<(s.nNodes%64)
-	if s.IsSplit[i0]&i1 != 0 {
+	if i0 < s.IsSplit.Len() && s.IsSplit[i0]&i1 != 0 {
 		n.split_bit = uint(s.SplitBits[s.nSplit])
 		s.nSplit++
 		s.nNodes++

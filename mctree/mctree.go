@@ -327,6 +327,13 @@ func (c *tree_cost) add_del_occupancy(m *Main, l uint, isDel bool) {
 	c.compute_cost(m)
 }
 
+func (m *Main) accept_cost_change(dcost float64) (accept bool) {
+	rnd := rand.Float64()
+	exp := math.Exp(-dcost / m.temperature)
+	accept = rnd < exp
+	return
+}
+
 type tree struct {
 	*Main
 
@@ -351,6 +358,7 @@ type Config struct {
 	Max_leafs           uint
 	Min_pairs_for_split uint
 	Validate_iter       uint
+	Temperature         float64
 }
 
 type Main struct {
@@ -465,9 +473,7 @@ func (sup *node) split(m *Main, bit uint) (accept_split bool) {
 	if accept_split {
 		m.stats.split.advanced++
 	} else if i0 > 0 && i1 > 0 {
-		rnd := rand.Float64()
-		exp := math.Exp(-dcost / m.temperature)
-		accept_split = rnd < exp
+		accept_split = m.accept_cost_change(dcost)
 	}
 	if !accept_split {
 		ps[0].put(m)
@@ -559,9 +565,7 @@ func (n *node) join(m *Main) (accept_join bool) {
 	if accept_join {
 		m.stats.join.advanced++
 	} else {
-		rnd := rand.Float64()
-		exp := math.Exp(-dcost / m.temperature)
-		accept_join = rnd < exp
+		accept_join = m.accept_cost_change(dcost)
 	}
 
 	if !accept_join {
@@ -797,24 +801,28 @@ func (m *Main) Step() (lower_cost_found bool) {
 		m.clone_tree(m.tree_sequence, m.tree_sequence-1)
 	}
 
-	// Choose a random leaf (sub) and leaf's parent (sup).
-	sub, sup := m.random_leaf()
-	accepted := false
 	max_leafs := m.Max_leafs
 	// Never allow more leafs than we have pairs.
 	if np := m.n_pairs(); np < max_leafs {
 		max_leafs = np
 	}
 
-	switch {
-	case m.random_bit() != 0 && m.is_joinable(sub, sup):
-		// Try to join child with parent.
-		accepted = sup.join(m)
-	case t.n_non_empty_leafs+1 <= float64(max_leafs) &&
-		sub.n_pairs() >= m.Min_pairs_for_split:
-		// Try to split sub in 2 using random masked bit.
-		if bit, ok := sub.random_masked_bit(m); ok {
-			accepted = sub.split(m, bit)
+	accepted := false
+	for did_somthing := false; !did_somthing; {
+		// Choose a random leaf (sub) and leaf's parent (sup).
+		sub, sup := m.random_leaf()
+		switch {
+		case m.random_bit() != 0 && m.is_joinable(sub, sup):
+			// Try to join child with parent.
+			accepted = sup.join(m)
+			did_somthing = true
+		case t.n_non_empty_leafs+1 <= float64(max_leafs) &&
+			sub.n_pairs() >= m.Min_pairs_for_split:
+			// Try to split sub in 2 using random masked bit.
+			if bit, ok := sub.random_masked_bit(m); ok {
+				accepted = sub.split(m, bit)
+			}
+			did_somthing = true
 		}
 	}
 
@@ -828,7 +836,7 @@ func (m *Main) Step() (lower_cost_found bool) {
 		}
 		m.tree_sequence++
 		t.n_steps = 0
-	} else if t.n_steps > m.Restart_after_steps {
+	} else if m.Restart_after_steps != 0 && t.n_steps > m.Restart_after_steps {
 		// Lower cost not found after a number of steps: restart and try again.
 		m.restart()
 		m.stats.n_restart++
@@ -851,6 +859,7 @@ func (m *Main) Init() {
 	}
 
 	m.pair_hash.init(m.n_pairs_per_key, 0)
+	m.temperature = m.Config.Temperature
 
 	if m.wantValidate() {
 		m.validate_all_pairs = make(map[maxPair]bool)
@@ -931,8 +940,6 @@ func (ts *tree_stats) String() (s string) {
 
 	return
 }
-
-func (m *Main) SetTemperature(t float64) { m.temperature = t }
 
 func (m *Main) Print(i uint, start time.Time, verbose bool) {
 	t := m.get_min_tree()

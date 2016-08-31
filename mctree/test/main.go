@@ -162,9 +162,10 @@ func main() {
 	flag.UintVar(&t.print_iter, "print", 0, "Number of iterations between prints (0 means disable)")
 	flag.UintVar(&t.add_del_iter, "add-del", 0, "Number of iterations between random add/del (0 means disable)")
 	flag.UintVar(&t.verbose, "verbose", 0, "Verbosity level (0 means not verbose)")
-	flag.UintVar(&cf.Restart_after_steps, "restart", 32, "Restart if no advance after this many steps")
+	flag.UintVar(&cf.Restart_after_steps, "restart", 0, "Restart if no advance after this many steps")
 	flag.UintVar(&cf.Max_leafs, "max-leafs", 16<<10, "Max number of leafs")
 	flag.UintVar(&cf.Min_pairs_for_split, "min-pairs", 4, "Min number of pairs in a bucket for a split")
+	flag.Float64Var(&cf.Temperature, "temperature", 1e-6, "Temperature for annealing")
 	flag.StringVar(&t.cpu_profile_file, "cpuprofile", "", "write cpu profile to file")
 	flag.StringVar(&t.route_views_path, "route-views", "", `Input routing table from route-views.org "show ip route"`)
 	flag.UintVar(&t.n_sequential_slash_24_routes, "24-routes", 0, "Use this many sequential 10.X/24 routes for routing table (instead of reading from file).")
@@ -238,10 +239,6 @@ func (test *test) optimize_table() {
 	}
 
 	fmt.Println("seed: ", test.seed)
-
-	// fixme anneal schedule
-	// even better: use parallel tempering.
-	m.SetTemperature(1e-6)
 
 	defer func() {
 		if e := recover(); e != nil {

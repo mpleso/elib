@@ -72,7 +72,14 @@ func (m *pair_hash) HashResize(newCap uint, rs []elib.HashResizeCopy) {
 }
 
 func (p pair_vec) HashKey(s *elib.HashState) {
-	s.HashPointer(unsafe.Pointer(&p[0]), uintptr(len(p))*unsafe.Sizeof(p[0]))
+	switch len(p) {
+	case 1:
+		s.HashUint64(uint64(p[0].Value), uint64(p[0].Mask), 0, 0)
+	case 2:
+		s.HashUint64(uint64(p[0].Value), uint64(p[0].Mask), uint64(p[1].Value), uint64(p[1].Mask))
+	default:
+		s.HashPointer(unsafe.Pointer(&p[0]), uintptr(len(p))*unsafe.Sizeof(p[0]))
+	}
 }
 
 func (a pair_vec) equal(b pair_vec) bool {
