@@ -80,7 +80,11 @@ func (l *Loop) showRuntimeStats(c cli.Commander, w cli.Writer, in *cli.Input) (e
 		for j := range s {
 			io := " input"
 			if j == 1 {
-				io = " output"
+				if _, ok := n.noder.(inOutLooper); ok {
+					io = ""
+				} else {
+					io = " output"
+				}
 			}
 			if s[j].calls > 0 {
 				ns = append(ns, rtNode{

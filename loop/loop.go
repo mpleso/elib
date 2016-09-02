@@ -15,6 +15,7 @@ import (
 
 type Node struct {
 	name                    string
+	noder                   Noder
 	index                   uint
 	loop                    *Loop
 	rxEvents                chan event.Actor
@@ -24,7 +25,6 @@ type Node struct {
 	active                  bool
 	polling                 bool
 	suspended               bool
-	dataCaller              inOutLooper
 	activePollerIndex       uint
 	initOnce                sync.Once
 	initWg                  sync.WaitGroup
@@ -557,6 +557,7 @@ func (s *pollerStats) VectorRate() float64 {
 
 func (l *Loop) addDataNode(r Noder) {
 	n := r.GetNode()
+	n.noder = r
 	n.index = uint(len(l.DataNodes))
 	n.activePollerIndex = ^uint(0)
 	l.DataNodes = append(l.DataNodes, r)
