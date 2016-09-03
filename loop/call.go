@@ -221,8 +221,8 @@ func (l *Loop) AddNamedNextWithIndex(nr Noder, nextName string, withIndex uint) 
 	if nextIndex, ok = n.findNext(nextName, true); ok {
 		if nextIndex != withIndex && withIndex != ^uint(0) {
 			err = fmt.Errorf("add-next %s: inconsistent next for %s", n.name, nextName)
-			return
 		}
+		withIndex = nextIndex
 	}
 
 	if withIndex == ^uint(0) {
