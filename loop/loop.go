@@ -66,18 +66,26 @@ func (n *Node) allocActivePoller(l *Loop) {
 	elog.GenEventf("alloc poller %d %s", i, n.name)
 }
 
+func (a *activePoller) flushNodeStats(l *Loop) {
+	for i := range a.activeNodes {
+		ani := &a.activeNodes[i]
+		ni := l.DataNodes[ani.index].GetNode()
+
+		ni.inputStats.current.add_raw(&ani.inputStats)
+		ani.inputStats.zero()
+
+		ni.outputStats.current.add_raw(&ani.outputStats)
+		ani.outputStats.zero()
+	}
+}
+
 func (n *Node) freeActivePoller(l *Loop) {
 	a := n.getActivePoller(l)
-	an := a.currentNode
-	n.inputStats.current.add_raw(&an.inputStats)
-	n.outputStats.current.add_raw(&an.outputStats)
-	an.inputStats.clear()
-	an.outputStats.clear()
+	a.flushNodeStats(l)
 	a.pollerNode = nil
 	i := n.activePollerIndex
 	l.activePollerPool.PutIndex(i)
 	n.activePollerIndex = ^uint(0)
-	a.index = ^uint16(0)
 	elog.GenEventf("free poller %d %s", i, n.name)
 }
 
