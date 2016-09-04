@@ -18,6 +18,11 @@ type nodeStats struct {
 }
 
 func (s *nodeStats) clear() { s.lastClear = s.current }
+func (s *nodeStats) zero() {
+	var z stats
+	s.current = z
+	s.lastClear = z
+}
 
 func (s *stats) add_helper(n *nodeStats, raw bool) {
 	c, v, l := n.current.calls, n.current.vectors, n.current.clocks
@@ -118,7 +123,7 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 		var ini LooperIn
 		ini, err = asLooperIn(vi)
 		if err != nil {
-			err = fmt.Errorf("loop.LooperIn field `%s' must be exported", s.Field(i).Name)
+			err = fmt.Errorf("loop.LooperIn field `%s' %s", s.Field(i).Name, err)
 			return
 		}
 		if ini != nil {
@@ -135,14 +140,16 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 		err = fmt.Errorf("data node has more than one slice input")
 		return
 	}
+	n := l.DataNodes[a.index].GetNode()
 	for i := range ins {
-		a.addNext(ins[i], uint(i))
+		nn := &n.nextNodes[i]
+		nn.in = ins[i]
+		a.addNext(ap, nn, uint(i))
 	}
 	if len(inSlices) > 0 {
 		a.outSlice = &inSlices[0]
-		n := l.DataNodes[a.index].GetNode()
 		for i := range n.nextNodes {
-			a.addNext(n.nextNodes[i].in, uint(i))
+			a.addNext(ap, &n.nextNodes[i], uint(i))
 		}
 	}
 	return
@@ -150,8 +157,10 @@ func (a *activeNode) analyze(l *Loop, ap *activePoller) (err error) {
 
 func ithLooperIn(as reflect.Value, i int) LooperIn { return as.Index(i).Addr().Interface().(LooperIn) }
 
-func (a *activeNode) addNext(i LooperIn, withIndex uint) {
+func (a *activeNode) addNext(ap *activePoller, nn *nextNode, withIndex uint) {
+	i := nn.in
 	in := i.GetIn()
+	in.activeIndex = ap.index
 	x := int(withIndex)
 	in.nextIndex = uint32(x)
 	oi := i
@@ -184,6 +193,7 @@ func (a *activeNode) addNext(i LooperIn, withIndex uint) {
 	}
 	a.outIns.Validate(uint(x))
 	a.outIns[x] = oi
+	a.out.addNext(uint(x), nn.nodeIndex)
 }
 
 func (n *Node) findNext(name string, create bool) (x uint, ok bool) {
@@ -237,9 +247,12 @@ func (l *Loop) AddNamedNextWithIndex(nr Noder, nextName string, withIndex uint) 
 	if xr != nil {
 		nn.nodeIndex = x.index
 		nn.in = xi.MakeLoopIn()
-		l.activePollerPool.Foreach(func(p *activePoller) {
-			p.activeNodes[n.index].addNext(nn.in, withIndex)
-		})
+		for i := range l.activePollerPool.entries {
+			p := l.activePollerPool.entries[i]
+			if p != nil {
+				p.activeNodes[n.index].addNext(p, nn, withIndex)
+			}
+		}
 	}
 	return
 }
@@ -292,21 +305,6 @@ func (ap *activePoller) initNodes(l *Loop) {
 			l.Fatalf("%s: %s", nodeName(n), err)
 		}
 	}
-
-	for ni := range ap.activeNodes {
-		a := &ap.activeNodes[ni]
-		if a.out == nil {
-			continue
-		}
-		a.out.alloc(uint(len(a.outIns)))
-		for xi := range a.outIns {
-			oi := a.outIns[xi]
-			aNode := l.DataNodes[a.index].GetNode()
-			a.out.nextNodes[xi] = uint32(aNode.nextNodes[xi].nodeIndex)
-			i := oi.GetIn()
-			i.activeIndex = ap.index
-		}
-	}
 }
 
 // Maximum vector length.
@@ -314,6 +312,8 @@ const MaxVectorLen = 256
 
 // Vector index.
 type Vi uint8
+
+//go:generate gentemplate -d Package=loop -id Vi -d VecType=viVec -d Type=Vi github.com/platinasystems/elib/vec.tmpl
 
 type pending struct {
 	in            *In
@@ -324,15 +324,16 @@ type pending struct {
 }
 
 type Out struct {
-	Len       []Vi
-	nextNodes []uint32
+	Len       viVec
+	nextNodes elib.Uint32Vec
 	isPending elib.BitmapVec
 }
 
-func (f *Out) alloc(nNext uint) {
-	f.Len = make([]Vi, nNext)
-	f.isPending.Alloc(nNext)
-	f.nextNodes = make([]uint32, nNext)
+func (f *Out) addNext(i, next_node_index uint) {
+	f.Len.Validate(i)
+	f.nextNodes.Validate(i)
+	f.isPending.Alloc(i + 1)
+	f.nextNodes[i] = uint32(next_node_index)
 }
 
 // Fetch out frame for current active node.
