@@ -332,7 +332,7 @@ func (l *Loop) dataPoll(p inLooper) {
 		nVec := n.out.call(l, ap)
 		ap.pollerStats.update(nVec, t0)
 		l.pollerStats.update(nVec)
-		c.pollerElog(poller_sig, byte(ap.index))
+		c.pollerElog(poller_signal, byte(ap.index))
 		c.toLoop <- struct{}{}
 	}
 }
