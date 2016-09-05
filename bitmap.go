@@ -365,7 +365,7 @@ func (b Bitmap) Free() Bitmap {
 	return Bitmaps.Free(b)
 }
 
-func (p *BitmapPool) ForeachSetBit(b Bitmap, fn func(uint) error) (err error) {
+func (p *BitmapPool) ForeachSetBit(b Bitmap, fn func(uint)) {
 	var s []Bitmap
 	if !b.isPoolIndex() {
 		s = []Bitmap{b}
@@ -377,19 +377,13 @@ func (p *BitmapPool) ForeachSetBit(b Bitmap, fn func(uint) error) (err error) {
 		for x != 0 {
 			f := firstSet(x)
 			l := minLog2(f)
-			err = fn(uint(i*bitmapBits) + l)
-			if err != nil {
-				return
-			}
+			fn(uint(i*bitmapBits) + l)
 			x ^= f
 		}
 	}
-	return
 }
 
-func (b Bitmap) ForeachSetBit(fn func(uint) error) (err error) {
-	return Bitmaps.ForeachSetBit(b, fn)
-}
+func (b Bitmap) ForeachSetBit(fn func(uint)) { Bitmaps.ForeachSetBit(b, fn) }
 
 func (p *BitmapPool) Next(b Bitmap, px *uint) (ok bool) {
 	x := *px
@@ -433,12 +427,11 @@ func (b Bitmap) Next(px *uint) bool {
 
 func (p *BitmapPool) String(b Bitmap) string {
 	s := "{"
-	p.ForeachSetBit(b, func(x uint) error {
+	p.ForeachSetBit(b, func(x uint) {
 		if len(s) > 1 {
 			s += ", "
 		}
 		s += fmt.Sprintf("%d", x)
-		return nil
 	})
 	s += "}"
 	return s
