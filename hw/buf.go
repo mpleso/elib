@@ -180,7 +180,9 @@ func (p *BufferPool) setState(offset uint32, new bufferState) (old bufferState) 
 
 func (r *RefHeader) ValidateState(m *BufferMain, want bufferState) (invalid bool) {
 	if trackBufferState {
+		m.Lock()
 		got := m.bufferStateByOffset[r.offset()]
+		m.Unlock()
 		invalid = got != want
 	}
 	return
