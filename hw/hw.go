@@ -32,6 +32,8 @@ func CheckRegAddr(name string, got, want uint) {
 // Memory-mapped read/write
 func LoadUint32(addr *uint32) (data uint32)
 func StoreUint32(addr *uint32, data uint32)
+func LoadUint64(addr *uint64) (data uint64)
+func StoreUint64(addr *uint64, data uint64)
 
 func MemoryBarrier()
 
