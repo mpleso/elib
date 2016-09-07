@@ -38,18 +38,20 @@ func (h *MemHeap) Init(n uint) (err error) {
 	return
 }
 
-func (h *MemHeap) Get(n uint) (b []byte, id Index, offset, cap uint) {
+func (h *MemHeap) GetAligned(n, log2Align uint) (b []byte, id Index, offset, cap uint) {
 	// Allocate memory in case caller has not called Init to select a size.
 	if err := h.Init(64 << 20); err != nil {
 		panic(err)
 	}
 
 	cap = uint(Word(n).RoundCacheLine())
-	id, i := h.heap.Get(cap >> cpu.Log2CacheLineBytes)
+	id, i := h.heap.GetAligned(cap>>cpu.Log2CacheLineBytes, log2Align)
 	offset = uint(i) << cpu.Log2CacheLineBytes
 	b = h.data[offset : offset+cap]
 	return
 }
+
+func (h *MemHeap) Get(n uint) (b []byte, id Index, offset, cap uint) { return h.GetAligned(n, 0) }
 
 func (h *MemHeap) Put(id Index) { h.heap.Put(id) }
 

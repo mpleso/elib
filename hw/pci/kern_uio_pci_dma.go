@@ -46,7 +46,7 @@ func (h *uioPciDmaMain) chunkIndexForOffset(byteOffset, nBytes uintptr) (chunkIn
 	return
 }
 
-func (h *uioPciDmaMain) alloc(ask uint) (b []byte, id elib.Index, offset uint, cap uint) {
+func (h *uioPciDmaMain) alloc(ask, log2Align uint) (b []byte, id elib.Index, offset uint, cap uint) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -55,6 +55,11 @@ func (h *uioPciDmaMain) alloc(ask uint) (b []byte, id elib.Index, offset uint, c
 	if got, max := nLines, uint(1)<<h.log2LinesPerChunk; got > max {
 		panic(fmt.Errorf("request too large: %d lines > %d max", got, max))
 	}
+
+	if log2Align < cpu.Log2CacheLineBytes {
+		log2Align = cpu.Log2CacheLineBytes
+	}
+	log2Align -= cpu.Log2CacheLineBytes
 
 	idsToFree := []elib.Index{}
 	defer func() {
@@ -67,7 +72,7 @@ func (h *uioPciDmaMain) alloc(ask uint) (b []byte, id elib.Index, offset uint, c
 
 	for {
 		var lineIndex uint
-		id, lineIndex = h.heap.Get(nLines)
+		id, lineIndex = h.heap.GetAligned(nLines, log2Align)
 
 		lo := uintptr(lineIndex) << cpu.Log2CacheLineBytes
 
@@ -201,9 +206,14 @@ func (h *uioPciDmaMain) heapInit(uioMinorDevice uint32, maxSize uint) (err error
 
 var uioPciDma = &uioPciDmaMain{}
 
-func DmaAlloc(nBytes uint) (b []byte, id elib.Index, offset, cap uint) { return uioPciDma.alloc(nBytes) }
-func DmaFree(id elib.Index)                                            { uioPciDma.free(id) }
-func DmaGet(id elib.Index) (b []byte)                                  { return uioPciDma.get(id) }
+func DmaAlloc(nBytes uint) (b []byte, id elib.Index, offset, cap uint) {
+	return uioPciDma.alloc(nBytes, 0)
+}
+func DmaAllocAligned(nBytes, log2Align uint) (b []byte, id elib.Index, offset, cap uint) {
+	return uioPciDma.alloc(nBytes, log2Align)
+}
+func DmaFree(id elib.Index)           { uioPciDma.free(id) }
+func DmaGet(id elib.Index) (b []byte) { return uioPciDma.get(id) }
 func DmaOffset(b []byte) uint {
 	return uint(uintptr(unsafe.Pointer(&b[0])) - uintptr(unsafe.Pointer(&uioPciDma.data[0])))
 }
