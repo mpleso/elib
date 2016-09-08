@@ -214,7 +214,7 @@ func (f *FibHeap) Min(data Ordered) (minu uint, valid bool) {
 		}
 	}
 
-	valid = true
+	valid = min != MaxIndex
 	f.minValid = valid
 	f.minIndex = min
 	minu = uint(min)
