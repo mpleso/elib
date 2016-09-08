@@ -26,8 +26,17 @@ func (d *Device) SysfsOpenFile(format string, mode int, args ...interface{}) (f 
 	return
 }
 
-func (d *Device) configRw(offset, wv, nBytes uint, isWrite bool) (rv uint, err error) {
-	var f *os.File
+func (d *Device) rw(offset, vʹ, nBytes uint, isWrite bool) (v uint) {
+	var (
+		f   *os.File
+		err error
+	)
+	defer func() {
+		if err != nil {
+			panic(err)
+		}
+	}()
+
 	f, err = d.SysfsOpenFile("config", os.O_RDWR)
 	if err != nil {
 		return
@@ -39,40 +48,41 @@ func (d *Device) configRw(offset, wv, nBytes uint, isWrite bool) (rv uint, err e
 	var b [4]byte
 	if isWrite {
 		for i := range b {
-			b[i] = byte((wv >> uint(8*i)) & 0xff)
+			b[i] = byte((vʹ >> uint(8*i)) & 0xff)
 		}
 		_, err = f.Write(b[:nBytes])
-		rv = wv
+		v = vʹ
 	} else {
 		_, err = f.Read(b[:nBytes])
 		if err == nil {
 			for i := range b {
-				rv |= uint(b[i]) << (8 * uint(i))
+				v |= uint(b[i]) << (8 * uint(i))
 			}
 		}
 	}
 	return
 }
 
-func (d *Device) ReadConfigUint32(offset uint) (v uint32, err error) {
-	var i uint
-	i, err = d.configRw(offset, 0, 4, false)
-	v = uint32(i)
+func (d *Device) ReadConfigUint32(o uint) (v uint32) {
+	v = uint32(d.rw(o, 0, 4, false))
 	return
 }
-func (d *Device) WriteConfigUint32(offset uint, value uint32) (err error) {
-	_, err = d.configRw(offset, uint(value), 4, true)
+func (d *Device) WriteConfigUint32(o uint, value uint32) {
+	d.rw(o, uint(value), 4, true)
+}
+func (d *Device) ReadConfigUint16(o uint) (v uint16) {
+	v = uint16(d.rw(o, 0, 2, false))
 	return
 }
-func (d *Device) ReadConfigUint16(offset uint) (v uint16, err error) {
-	var i uint
-	i, err = d.configRw(offset, 0, 2, false)
-	v = uint16(i)
+func (d *Device) WriteConfigUint16(o uint, value uint16) {
+	d.rw(o, uint(value), 2, true)
+}
+func (d *Device) ReadConfigUint8(o uint) (v uint8) {
+	v = uint8(d.rw(o, 0, 1, false))
 	return
 }
-func (d *Device) WriteConfigUint16(offset uint, value uint16) (err error) {
-	_, err = d.configRw(offset, uint(value), 2, true)
-	return
+func (d *Device) WriteConfigUint8(o uint, value uint8) {
+	d.rw(o, uint(value), 1, true)
 }
 
 func (d *Device) MapResource(r *Resource) (res unsafe.Pointer, err error) {
@@ -125,11 +135,11 @@ func DiscoverDevices() (err error) {
 
 		r := bytes.NewReader(d.configBytes)
 		binary.Read(r, binary.LittleEndian, &d.Config)
-		if d.Config.Hdr.Type() != Normal {
+		if d.Config.Type() != Normal {
 			continue
 		}
 
-		driver := GetDriver(d.Config.Hdr.DeviceID)
+		driver := GetDriver(d.Config.DeviceID)
 		if driver == nil {
 			continue
 		}

@@ -4,6 +4,7 @@ import (
 	"github.com/platinasystems/elib/cpu"
 
 	"fmt"
+	"reflect"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -14,6 +15,9 @@ func RoundCacheLine(x Word) Word    { return x.RoundCacheLine() }
 
 // Allocation heap of cache lines.
 type MemHeap struct {
+	// Protects heap get/put.
+	mu sync.Mutex
+
 	heap Heap
 
 	once sync.Once
@@ -22,27 +26,53 @@ type MemHeap struct {
 	data []byte
 }
 
-// Init initializes heap with n bytes of mmap'ed anonymous memory.
-func (h *MemHeap) init(n uint) (err error) {
-	n = uint(Word(n).RoundCacheLine())
-	h.data, err = syscall.Mmap(0, 0, int(n), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
-	if err != nil {
-		return fmt.Errorf("mmap: %s", err)
+func RawMmap(addr, length, prot, flags, fd, offset uintptr) (a uintptr, b []byte, err error) {
+	r, _, e := syscall.RawSyscall6(syscall.SYS_MMAP, addr, length, prot, flags, fd, offset)
+	if e != 0 {
+		err = fmt.Errorf("mmap: %s", e)
+		return
 	}
+	slice := reflect.SliceHeader{Data: r, Len: int(length), Cap: int(length)}
+	a = r
+	b = *(*[]byte)(unsafe.Pointer(&slice))
+	return
+}
+
+// Init initializes heap with n bytes of mmap'ed anonymous memory.
+func (h *MemHeap) init(b []byte) {
+	n := uint(len(b)) &^ (cpu.CacheLineBytes - 1)
+	h.data = b[:n]
 	h.heap.SetMaxLen(n >> cpu.Log2CacheLineBytes)
-	return err
 }
 
 func (h *MemHeap) Init(n uint) (err error) {
-	h.once.Do(func() { err = h.init(n) })
+	h.once.Do(func() {
+		_, h.data, err = RawMmap(0, uintptr(n), syscall.PROT_READ|syscall.PROT_WRITE,
+			syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE, 0, 0)
+		if err != nil {
+			err = fmt.Errorf("mmap: %s", err)
+			return
+		}
+		h.init(h.data)
+	})
 	return
 }
+
+func (h *MemHeap) InitData(b []byte) { h.init(b) }
 
 func (h *MemHeap) GetAligned(n, log2Align uint) (b []byte, id Index, offset, cap uint) {
 	// Allocate memory in case caller has not called Init to select a size.
 	if err := h.Init(64 << 20); err != nil {
 		panic(err)
 	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if log2Align < cpu.Log2CacheLineBytes {
+		log2Align = cpu.Log2CacheLineBytes
+	}
+	log2Align -= cpu.Log2CacheLineBytes
 
 	cap = uint(Word(n).RoundCacheLine())
 	id, i := h.heap.GetAligned(cap>>cpu.Log2CacheLineBytes, log2Align)
@@ -53,7 +83,11 @@ func (h *MemHeap) GetAligned(n, log2Align uint) (b []byte, id Index, offset, cap
 
 func (h *MemHeap) Get(n uint) (b []byte, id Index, offset, cap uint) { return h.GetAligned(n, 0) }
 
-func (h *MemHeap) Put(id Index) { h.heap.Put(id) }
+func (h *MemHeap) Put(id Index) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.heap.Put(id)
+}
 
 func (h *MemHeap) GetId(id Index) (b []byte) {
 	offset, len := h.heap.GetID(id)

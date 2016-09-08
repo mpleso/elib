@@ -2,9 +2,39 @@
 package pci
 
 import (
+	"github.com/platinasystems/elib/hw"
+
 	"fmt"
 	"sync"
+	"unsafe"
 )
+
+type Reg8 hw.Reg8
+type Reg16 hw.Reg16
+type Reg32 hw.Reg32
+
+func (r *Reg8) Get(d *Device) uint8 {
+	return d.ReadConfigUint8((*hw.Reg8)(r).Offset())
+}
+func (r *Reg8) Set(d *Device, v uint8) {
+	d.WriteConfigUint8((*hw.Reg8)(r).Offset(), v)
+}
+func (r *Reg16) Get(d *Device) uint16 {
+	return d.ReadConfigUint16((*hw.Reg16)(r).Offset())
+}
+func (r *Reg16) Set(d *Device, v uint16) {
+	d.WriteConfigUint16((*hw.Reg16)(r).Offset(), v)
+}
+func (r *Reg32) Get(d *Device) uint32 {
+	return d.ReadConfigUint32((*hw.Reg32)(r).Offset())
+}
+func (r *Reg32) Set(d *Device, v uint32) {
+	d.WriteConfigUint32((*hw.Reg32)(r).Offset(), v)
+}
+
+func (d *Device) getRegs(o uint) unsafe.Pointer {
+	return unsafe.Pointer(hw.RegsBaseAddress + uintptr(o))
+}
 
 // Under PCI, each device has 256 bytes of configuration address space,
 // of which the first 64 bytes are standardized as follows:
@@ -13,7 +43,7 @@ type ConfigHeader struct {
 	Command
 	Status
 
-	Revision uint8
+	Revision Reg8
 
 	// Distinguishes programming interface for device.
 	// For example, different standards for USB controllers.
@@ -43,13 +73,13 @@ const (
 	CardBus
 )
 
-type SoftwareInterface uint8
+type SoftwareInterface Reg8
 
 func (x SoftwareInterface) String() string {
 	return fmt.Sprintf("0x%02x", uint8(x))
 }
 
-type Command uint16
+type Command Reg16
 
 const (
 	IOEnable Command = 1 << iota
@@ -65,15 +95,16 @@ const (
 	INTxEmulationDisable
 )
 
-type Status uint16
+type Status Reg16
 
 // Device/vendor ID from PCI config space.
-type VendorID uint16
-type VendorDeviceID uint16
+type VendorID Reg16
+type VendorDeviceID Reg16
 
-func (d VendorDeviceID) String() string {
-	return fmt.Sprintf("0x%04x", uint16(d))
-}
+func (r *VendorID) Get(d *Device) VendorID             { return VendorID((*Reg16)(r).Get(d)) }
+func (r *VendorDeviceID) Get(d *Device) VendorDeviceID { return VendorDeviceID((*Reg16)(r).Get(d)) }
+
+func (d VendorDeviceID) String() string { return fmt.Sprintf("0x%04x", uint16(d)) }
 
 // Vendor/Device pair
 type DeviceID struct {
@@ -81,10 +112,10 @@ type DeviceID struct {
 	Device VendorDeviceID
 }
 
-func (d *Device) VendorID() VendorID       { return d.Config.Hdr.Vendor }
-func (d *Device) DeviceID() VendorDeviceID { return d.Config.Hdr.Device }
+func (d *Device) VendorID() VendorID       { return d.Config.Vendor }
+func (d *Device) DeviceID() VendorDeviceID { return d.Config.Device }
 
-type BaseAddressReg uint32
+type BaseAddressReg Reg32
 
 func (b BaseAddressReg) IsMem() bool {
 	return b&(1<<0) == 0
@@ -127,30 +158,32 @@ func (b BaseAddressReg) String() string {
 
 /* Header type 0 (normal devices) */
 type DeviceConfig struct {
-	Hdr ConfigHeader
+	ConfigHeader
 
 	// Base addresses specify locations in memory or I/O space.
 	// Decoded size can be determined by writing a value of 0xffffffff to the register, and reading it back.
 	// Only 1 bits are decoded.
 	BaseAddressRegs [6]BaseAddressReg
 
-	CardBusCIS uint32
+	CardBusCIS Reg32
 
 	SubID DeviceID
 
-	RomAddress uint32
+	RomAddress Reg32
 
 	// Config space offset of start of capability list.
-	CapabilityOffset uint8
-	_                [7]byte
+	CapabilityOffset Reg8
+	_                [7]Reg8
 
-	InterruptLine uint8
-	InterruptPin  uint8
-	MinGrant      uint8
-	MaxLatency    uint8
+	InterruptLine Reg8
+	InterruptPin  Reg8
+	MinGrant      Reg8
+	MaxLatency    Reg8
 }
 
-type Capability uint8
+func (d *Device) GetDeviceConfig() *DeviceConfig { return (*DeviceConfig)(d.getRegs(0)) }
+
+type Capability Reg8
 
 const (
 	PowerManagement Capability = iota + 1
@@ -179,10 +212,10 @@ type CapabilityHeader struct {
 	Capability
 
 	// Pointer to next capability header
-	NextCapabilityHeader uint8
+	NextCapabilityHeader Reg8
 }
 
-type ExtCapability uint16
+type ExtCapability Reg16
 
 const (
 	AdvancedErrorReporting ExtCapability = iota + 1
@@ -220,7 +253,7 @@ type ExtCapabilityHeader struct {
 
 	// [15:4] next pointer
 	// [3:0] version
-	VersionAndNextOffset uint16
+	VersionAndNextOffset Reg16
 }
 
 type BusAddress struct {
@@ -329,7 +362,7 @@ func (d *Device) ForeachCap(f func(h *CapabilityHeader, offset uint, contents []
 	for o < l {
 		var h CapabilityHeader
 		h.Capability = Capability(d.configBytes[o+0])
-		h.NextCapabilityHeader = uint8(d.configBytes[o+1])
+		h.NextCapabilityHeader = Reg8(d.configBytes[o+1])
 		b := d.configBytes[o+0:] // include CapabilityHeader
 		done, err = f(&h, o, b)
 		if err != nil || done {
@@ -356,6 +389,17 @@ func (d *Device) FindCap(c Capability) (b []byte, offset uint, found bool) {
 	return
 }
 
+func (d *Device) GetCap(c Capability) (p unsafe.Pointer) {
+	d.ForeachCap(func(h *CapabilityHeader, o uint, contents []byte) (done bool, err error) {
+		if found := h.Capability == c; found {
+			p = d.getRegs(o)
+			done = true
+		}
+		return
+	})
+	return
+}
+
 func (d *Device) ForeachExtCap(f func(h *ExtCapabilityHeader, offset uint, contents []byte) (done bool, err error)) (err error) {
 	o := uint(0x100)
 	l := uint(len(d.configBytes))
@@ -366,7 +410,7 @@ func (d *Device) ForeachExtCap(f func(h *ExtCapabilityHeader, offset uint, conte
 	for o < l {
 		var h ExtCapabilityHeader
 		h.ExtCapability = ExtCapability(d.configBytes[o+0]) | ExtCapability(d.configBytes[o+1])<<8
-		h.VersionAndNextOffset = uint16(d.configBytes[o+2]) | uint16(d.configBytes[o+3])<<8
+		h.VersionAndNextOffset = Reg16(d.configBytes[o+2]) | Reg16(d.configBytes[o+3])<<8
 		b := d.configBytes[o+0:] // include CapabilityHeader
 		done, err = f(&h, o, b)
 		if err != nil || done {

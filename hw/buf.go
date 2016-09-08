@@ -50,10 +50,10 @@ type Ref struct {
 func (r *RefHeader) h() *RefHeader          { return r }
 func (r *RefHeader) offset() uint32         { return r.offsetAndFlags &^ 0xf }
 func (dst *RefHeader) copyOffset(src *Ref)  { dst.offsetAndFlags |= src.offset() }
-func (r *RefHeader) Buffer() unsafe.Pointer { return DmaGetOffset(uint(r.offset())) }
+func (r *RefHeader) Buffer() unsafe.Pointer { return DmaGetPointer(uint(r.offset())) }
 func (r *RefHeader) GetBuffer() *Buffer     { return (*Buffer)(r.Buffer()) }
 func (r *RefHeader) Data() unsafe.Pointer {
-	return DmaGetOffset(uint(r.offset() + uint32(r.dataOffset)))
+	return DmaGetPointer(uint(r.offset() + uint32(r.dataOffset)))
 }
 func (r *RefHeader) DataPhys() uintptr { return DmaPhysAddress(uintptr(r.Data())) }
 
@@ -513,7 +513,7 @@ func (r *RefHeader) String() (s string) {
 			s += ", " + f.String()
 		}
 		var ok bool
-		if _, ok = DmaIsValidOffset(uint(r.offset() + uint32(r.dataOffset))); !ok {
+		if ok = DmaIsValidOffset(uint(r.offset() + uint32(r.dataOffset))); !ok {
 			s += ", bad-offset"
 		}
 		s += "}"
@@ -539,8 +539,8 @@ func (h *RefHeader) Validate() {
 	}()
 	r := h
 	for {
-		if offset, ok := DmaIsValidOffset(uint(r.offset() + uint32(r.dataOffset))); !ok {
-			err = fmt.Errorf("bad dma offset: %x", offset)
+		if ok := DmaIsValidOffset(uint(r.offset() + uint32(r.dataOffset))); !ok {
+			err = fmt.Errorf("bad dma offset: %x", r.dataOffset)
 			return
 		}
 		if r = r.NextRef(); r == nil {

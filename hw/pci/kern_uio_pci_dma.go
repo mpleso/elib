@@ -4,99 +4,28 @@ package pci
 
 import (
 	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/elib/hw"
 	"github.com/platinasystems/elib/iomux"
 
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"sync"
 	"syscall"
 	"unsafe"
 )
 
 type uioPciDmaMain struct {
-	// Allocation heap of cache lines.
-	mu   sync.Mutex
-	heap elib.Heap
-
 	// /dev/uio-dma
 	uio_dma_fd int
-
-	// Virtual address lines.
-	data []byte
 
 	// Chunks are 2^log2LinesPerChunk cache lines long.
 	// Kernel gives us memory in "Chunks" which are physically contiguous.
 	log2LinesPerChunk, log2BytesPerChunk uint8
 
-	pageTable []uintptr
-
-	// So that heapInit is called exactly once when first device is initialized.
-	heapInitOnce sync.Once
-}
-
-// Checks whether objects with offset and size spans a physical chunk boundary.
-// Objects that span boundaries cannot be used for DMA.
-func (h *uioPciDmaMain) chunkIndexForOffset(byteOffset, nBytes uintptr) (chunkIndex uintptr, ok bool) {
-	chunkIndex = byteOffset >> h.log2BytesPerChunk
-	hi := (byteOffset + nBytes - 1) >> h.log2BytesPerChunk
-	ok = chunkIndex == hi
-	return
-}
-
-func (h *uioPciDmaMain) alloc(ask, log2Align uint) (b []byte, id elib.Index, offset uint, cap uint) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	nBytes := uintptr(elib.Word(ask).RoundCacheLine())
-	nLines := uint(nBytes >> cpu.Log2CacheLineBytes)
-	if got, max := nLines, uint(1)<<h.log2LinesPerChunk; got > max {
-		panic(fmt.Errorf("request too large: %d lines > %d max", got, max))
-	}
-
-	if log2Align < cpu.Log2CacheLineBytes {
-		log2Align = cpu.Log2CacheLineBytes
-	}
-	log2Align -= cpu.Log2CacheLineBytes
-
-	idsToFree := []elib.Index{}
-	defer func() {
-		if idsToFree != nil {
-			for _, fid := range idsToFree {
-				h.heap.Put(fid)
-			}
-		}
-	}()
-
-	for {
-		var lineIndex uint
-		id, lineIndex = h.heap.GetAligned(nLines, log2Align)
-
-		lo := uintptr(lineIndex) << cpu.Log2CacheLineBytes
-
-		if _, ok := h.chunkIndexForOffset(lo, nBytes); ok {
-			b = h.data[lo : lo+nBytes]
-			cap = uint(nBytes)
-			offset = uint(lo)
-			return
-		}
-		idsToFree = append(idsToFree, id)
-	}
-
-	return
-}
-
-func (h *uioPciDmaMain) free(id elib.Index) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.heap.Put(id)
-}
-
-func (h *uioPciDmaMain) get(id elib.Index) (b []byte) {
-	offset, len := h.heap.GetID(id)
-	return h.data[offset : offset+len]
+	once sync.Once
 }
 
 const (
@@ -149,7 +78,58 @@ type uio_dma_unmap_req struct {
 	direction   uint32
 }
 
-func (h *uioPciDmaMain) heapInit(uioMinorDevice uint32, maxSize uint) (err error) {
+func (h *uioPciDmaMain) alloc_and_map(mmap_offset, size uint64, uioMinorDevice uint32) (m uio_dma_map_req, err error) {
+	r := uio_dma_alloc_req{}
+	r.dma_mask = 0xffffffff
+
+	r.chunk_size = uint32(size)
+	r.mmap_offset = mmap_offset
+	r.cache = uio_dma_cache_writecombine
+	for {
+		r.chunk_count = uint32(size) / r.chunk_size
+		_, _, e := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(h.uio_dma_fd), uintptr(uio_dma_alloc), uintptr(unsafe.Pointer(&r)))
+		if e == 0 {
+			break
+		}
+		if r.chunk_size == 4<<10 {
+			err = fmt.Errorf("ioctl UIO_DMA_ALLOC fails: %s", e)
+			return
+		}
+		r.chunk_size /= 2
+	}
+
+	m.direction = uio_dma_bidirectional
+	m.chunk_size = r.chunk_size
+	m.chunk_count = r.chunk_count
+	m.mmap_offset = r.mmap_offset
+	m.devid = uioMinorDevice
+	_, _, e := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(h.uio_dma_fd), uintptr(uio_dma_map), uintptr(unsafe.Pointer(&m)))
+	if e != 0 {
+		fr := uio_dma_free_req{mmap_offset: r.mmap_offset}
+		_, _, f := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(h.uio_dma_fd), uintptr(uio_dma_free), uintptr(unsafe.Pointer(&fr)))
+		err = fmt.Errorf("uio-dma-map: %s", e)
+		if f != 0 {
+			err = fmt.Errorf("%s, uio-dma-free: %s", err, f)
+		}
+		return
+	}
+
+	return
+}
+
+func (h *uioPciDmaMain) mmap(addr, length, prot, flags, fd, offset uintptr) (a uintptr, b []byte, err error) {
+	r, _, e := syscall.RawSyscall6(syscall.SYS_MMAP, addr, length, prot, flags, fd, offset)
+	if e != 0 {
+		err = fmt.Errorf("uio-dma mmap: %s", e)
+		return
+	}
+	slice := reflect.SliceHeader{Data: r, Len: int(length), Cap: int(length)}
+	a = r
+	b = *(*[]byte)(unsafe.Pointer(&slice))
+	return
+}
+
+func (h *uioPciDmaMain) heapInit(uioMinorDevice uint32, maxSize uint64) (err error) {
 	h.uio_dma_fd, err = syscall.Open("/dev/uio-dma", syscall.O_RDWR, 0)
 	if err != nil {
 		return
@@ -160,85 +140,31 @@ func (h *uioPciDmaMain) heapInit(uioMinorDevice uint32, maxSize uint) (err error
 		}
 	}()
 
-	r := uio_dma_alloc_req{}
-	r.dma_mask = 0xffffffff
-
-	r.chunk_size = uint32(maxSize)
-	for {
-		r.chunk_count = uint32(maxSize) / r.chunk_size
-		_, _, e := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(h.uio_dma_fd), uintptr(uio_dma_alloc), uintptr(unsafe.Pointer(&r)))
-		if e == 0 {
-			break
-		}
-		if r.chunk_size == 4<<10 {
-			return fmt.Errorf("ioctl UIO_DMA_ALLOC fails: %s", e)
-		}
-		r.chunk_size /= 2
-	}
-
-	h.data, err = syscall.Mmap(h.uio_dma_fd, int64(r.mmap_offset), int(maxSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	mmap_offset := uint64(0)
+	r, err := h.alloc_and_map(mmap_offset, maxSize, uioMinorDevice)
 	if err != nil {
-		return fmt.Errorf("uio-dma mmap: %s", err)
+		return err
 	}
 
-	m := uio_dma_map_req{}
-	m.direction = uio_dma_bidirectional
-	m.chunk_size = r.chunk_size
-	m.chunk_count = r.chunk_count
-	m.mmap_offset = r.mmap_offset
-	m.devid = uint32(uioMinorDevice)
-	_, _, e := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(h.uio_dma_fd), uintptr(uio_dma_map), uintptr(unsafe.Pointer(&m)))
-	if e != 0 {
-		return fmt.Errorf("uio-dma-map: %s", e)
+	var data []byte
+	_, data, err = elib.RawMmap(0, uintptr(maxSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED|syscall.MAP_FIXED,
+		uintptr(h.uio_dma_fd), uintptr(mmap_offset))
+	if err != nil {
+		return err
 	}
+	hw.DmaInit(data)
 
-	h.log2BytesPerChunk = uint8(elib.MinLog2(elib.Word(r.chunk_size)))
-	h.log2LinesPerChunk = h.log2BytesPerChunk - cpu.Log2CacheLineBytes
-	h.pageTable = make([]uintptr, r.chunk_count)
-	for i := range h.pageTable {
-		h.pageTable[i] = uintptr(m.dma_addr[i])
+	t := &hw.PageTable
+	t.Log2BytesPerPage = uint(elib.MinLog2(elib.Word(r.chunk_size)))
+	t.Pages = make([]uintptr, r.chunk_count)
+	for i := range t.Pages {
+		t.Pages[i] = uintptr(r.dma_addr[i])
 	}
-
-	h.heap.SetMaxLen(maxSize >> cpu.Log2CacheLineBytes)
 
 	return err
 }
 
 var uioPciDma = &uioPciDmaMain{}
-
-func DmaAlloc(nBytes uint) (b []byte, id elib.Index, offset, cap uint) {
-	return uioPciDma.alloc(nBytes, 0)
-}
-func DmaAllocAligned(nBytes, log2Align uint) (b []byte, id elib.Index, offset, cap uint) {
-	return uioPciDma.alloc(nBytes, log2Align)
-}
-func DmaFree(id elib.Index)           { uioPciDma.free(id) }
-func DmaGet(id elib.Index) (b []byte) { return uioPciDma.get(id) }
-func DmaOffset(b []byte) uint {
-	return uint(uintptr(unsafe.Pointer(&b[0])) - uintptr(unsafe.Pointer(&uioPciDma.data[0])))
-}
-func DmaGetOffset(o uint) unsafe.Pointer { return unsafe.Pointer(&uioPciDma.data[o]) }
-func DmaIsValidOffset(o uint) bool       { return o < uint(len(uioPciDma.data)) }
-func DmaUsage() string {
-	h := &uioPciDma.heap
-	max := h.GetMaxLen()
-	if max == 0 {
-		return "empty"
-	}
-	u := h.GetUsage()
-	return fmt.Sprintf("used %s, free %s, capacity %s",
-		elib.MemorySize(u.Used<<cpu.Log2CacheLineBytes),
-		elib.MemorySize(u.Free<<cpu.Log2CacheLineBytes),
-		elib.MemorySize(max<<cpu.Log2CacheLineBytes))
-}
-
-// Returns caller physical address of given virtual address.
-// Physical address will be suitable for hardware DMA.
-func DmaPhysAddress(a uintptr) uintptr {
-	m := uioPciDma
-	offset := a - uintptr(unsafe.Pointer(&m.data[0]))
-	return m.pageTable[offset>>m.log2BytesPerChunk] + offset&(1<<m.log2BytesPerChunk-1)
-}
 
 type uioPciDevice struct {
 	Device
@@ -316,7 +242,7 @@ func (d *uioPciDevice) Open() (err error) {
 
 	// Initialize DMA heap once device is open.
 	m := uioPciDma
-	m.heapInitOnce.Do(func() {
+	m.once.Do(func() {
 		err = m.heapInit(d.uioMinorDevice, 64<<20)
 	})
 	if err != nil {
