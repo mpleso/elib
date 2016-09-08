@@ -146,15 +146,15 @@ func (h *uioPciDmaMain) heapInit(uioMinorDevice uint32, maxSize uint64) (err err
 		return err
 	}
 
+	t := &hw.PageTable
 	var data []byte
-	_, data, err = elib.RawMmap(0, uintptr(maxSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED|syscall.MAP_FIXED,
+	t.Data, data, err = elib.RawMmap(0, uintptr(maxSize), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED,
 		uintptr(h.uio_dma_fd), uintptr(mmap_offset))
 	if err != nil {
 		return err
 	}
 	hw.DmaInit(data)
 
-	t := &hw.PageTable
 	t.Log2BytesPerPage = uint(elib.MinLog2(elib.Word(r.chunk_size)))
 	t.Pages = make([]uintptr, r.chunk_count)
 	for i := range t.Pages {

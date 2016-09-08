@@ -39,26 +39,27 @@ func RawMmap(addr, length, prot, flags, fd, offset uintptr) (a uintptr, b []byte
 }
 
 // Init initializes heap with n bytes of mmap'ed anonymous memory.
-func (h *MemHeap) init(b []byte) {
-	n := uint(len(b)) &^ (cpu.CacheLineBytes - 1)
+func (h *MemHeap) init(b []byte, n uint) {
+	if len(b) == 0 {
+		var err error
+		_, b, err = RawMmap(0, uintptr(n), syscall.PROT_READ|syscall.PROT_WRITE,
+			syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE, 0, 0)
+		if err != nil {
+			err = fmt.Errorf("mmap: %s", err)
+			panic(err)
+		}
+	}
+	n = uint(len(b)) &^ (cpu.CacheLineBytes - 1)
 	h.data = b[:n]
 	h.heap.SetMaxLen(n >> cpu.Log2CacheLineBytes)
 }
 
 func (h *MemHeap) Init(n uint) (err error) {
-	h.once.Do(func() {
-		_, h.data, err = RawMmap(0, uintptr(n), syscall.PROT_READ|syscall.PROT_WRITE,
-			syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE, 0, 0)
-		if err != nil {
-			err = fmt.Errorf("mmap: %s", err)
-			return
-		}
-		h.init(h.data)
-	})
+	h.once.Do(func() { h.init(h.data, n) })
 	return
 }
 
-func (h *MemHeap) InitData(b []byte) { h.init(b) }
+func (h *MemHeap) InitData(b []byte) { h.init(b, 0) }
 
 func (h *MemHeap) GetAligned(n, log2Align uint) (b []byte, id Index, offset, cap uint) {
 	// Allocate memory in case caller has not called Init to select a size.
