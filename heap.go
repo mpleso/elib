@@ -297,10 +297,6 @@ func (heap *Heap) GetAligned(sizeArg, log2Alignment uint) (id Index, offset uint
 	// Adjust size for alignment so we guarantee a large enough block.
 	a := Index(1) << log2Alignment
 
-	if a > Index(sizeArg) {
-		panic(fmt.Errorf("alignment %d > size %d", sizeArg, a))
-	}
-
 	size := sizeArg + uint(a) - 1
 	sa := Index(sizeArg)
 	s := Index(size)
