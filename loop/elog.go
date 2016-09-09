@@ -14,7 +14,6 @@ const (
 	poller_done
 	poller_suspend
 	poller_resume
-	poller_signal
 )
 
 var poller_elog_event_type_names = [...]string{
@@ -22,7 +21,6 @@ var poller_elog_event_type_names = [...]string{
 	poller_done:    "done",
 	poller_suspend: "suspend",
 	poller_resume:  "resume",
-	poller_signal:  "signal",
 }
 
 func (t poller_elog_event_type) String() string {
