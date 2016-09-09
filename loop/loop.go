@@ -310,8 +310,15 @@ func (l *Loop) Suspend(in *In) {
 	p.suspended = true
 	p.toLoop <- struct{}{}
 	<-p.fromLoop
-	p.suspended = false
-	p.pollerElog(poller_resume, byte(a.index))
+}
+
+func (l *Loop) Resume(in *In) {
+	a := l.activePollerPool.entries[in.activeIndex]
+	if p := a.pollerNode; p != nil {
+		p.suspended = false
+		p.pollerElog(poller_resume, byte(a.index))
+		l.Interrupt()
+	}
 }
 
 func (l *Loop) dataPoll(p inLooper) {
@@ -330,7 +337,6 @@ func (l *Loop) dataPoll(p inLooper) {
 		nVec := n.out.call(l, ap)
 		ap.pollerStats.update(nVec, t0)
 		l.pollerStats.update(nVec)
-		c.pollerElog(poller_signal, byte(ap.index))
 		c.toLoop <- struct{}{}
 	}
 }
@@ -345,7 +351,7 @@ func (l *Loop) startDataPoller(n inLooper) {
 func (l *Loop) doPollers() {
 	for _, p := range l.dataPollers {
 		n := p.GetNode()
-		if !(n.active || n.suspended) {
+		if !n.active || n.suspended {
 			continue
 		}
 		if n.activePollerIndex == ^uint(0) {
