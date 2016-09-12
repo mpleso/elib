@@ -34,3 +34,16 @@ func FlagStringerWithFormat(n []string, x Word, unknownFormat string) (s string)
 }
 
 func FlagStringer(n []string, x Word) string { return FlagStringerWithFormat(n, x, "%d") }
+
+type Lines []string
+
+func (l *Lines) Add(s string) { *l = append(*l, s) }
+func (l Lines) Indent(indent uint) (s string) {
+	for li := range l {
+		for i := uint(0); i < indent; i++ {
+			s += " "
+		}
+		s += l[li] + "\n"
+	}
+	return
+}
