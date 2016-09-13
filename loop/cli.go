@@ -12,24 +12,24 @@ import (
 )
 
 type LoopCli struct {
-	cli.Main
 	Node
+	cli.Main
 }
 
 func (l *Loop) CliAdd(c *cli.Command) { l.Cli.AddCommand(c) }
 
 type fileEvent struct {
-	loop *Loop
+	c *LoopCli
 	*cli.File
 }
 
-func (l *Loop) rxReady(f *cli.File) {
-	l.AddEvent(&fileEvent{loop: l, File: f}, &l.Cli)
+func (c *LoopCli) rxReady(f *cli.File) {
+	c.AddEvent(&fileEvent{c: c, File: f}, c)
 }
 
 func (c *fileEvent) EventAction() {
 	if err := c.RxReady(); err == cli.ErrQuit {
-		c.loop.AddEvent(ErrQuit, nil)
+		c.c.AddEvent(ErrQuit, nil)
 	}
 }
 
@@ -149,7 +149,7 @@ func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err 
 func (l *Loop) cliInit() {
 	l.RegisterEventPoller(iomux.Default)
 	c := &l.Cli
-	c.Main.RxReady = l.rxReady
+	c.Main.RxReady = c.rxReady
 	l.RegisterNode(c, "loop-cli")
 	c.AddCommand(&cli.Command{
 		Name:      "show runtime",
