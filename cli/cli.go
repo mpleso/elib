@@ -214,7 +214,7 @@ func (m *Main) Exec(w io.Writer, r io.Reader) (err error) {
 	if err == nil {
 		defer func() {
 			if e := recover(); e != nil {
-				err = fmt.Errorf("%s: %s `%s'", c.CliName(), e.(error), in)
+				err = fmt.Errorf("%s: %s `%s'", c.CliName(), e, in)
 			}
 		}()
 		err = c.CliAction(w, in)
