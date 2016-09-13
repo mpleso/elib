@@ -54,8 +54,9 @@ func (p *Pool) advance(t cpu.Time, iv *ActorVec) {
 		p.fibheap.Del(ei)
 		if iv != nil {
 			*iv = append(*iv, e)
+		} else {
+			e.EventAction()
 		}
-		e.EventAction()
 	}
 }
 
