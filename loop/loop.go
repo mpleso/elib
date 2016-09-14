@@ -155,6 +155,7 @@ func (l *Loop) Suspend(in *In) {
 func (l *Loop) Resume(in *In) {
 	a := l.activePollerPool.entries[in.activeIndex]
 	if p := a.pollerNode; p != nil {
+		p.active = true
 		p.suspended = false
 		p.pollerElog(poller_resume, byte(a.index))
 		l.Interrupt()
