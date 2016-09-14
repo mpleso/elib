@@ -266,18 +266,25 @@ func (m *BufferMain) AddBufferPool(p *BufferPool) {
 	if m.PoolByName == nil {
 		m.PoolByName = make(map[string]*BufferPool)
 	}
-	if _, ok := m.PoolByName[p.Name]; ok {
-		panic("duplicate pool name: " + p.Name)
+	save := p.Data
+	if q, ok := m.PoolByName[p.Name]; ok {
+		m.delBufferPool(q, true)
 	}
+	p.Data = save
 	m.PoolByName[p.Name] = p
 	m.Unlock()
 	p.Init()
 }
 
-func (m *BufferMain) DelBufferPool(p *BufferPool) {
-	m.Lock()
+func (m *BufferMain) DelBufferPool(p *BufferPool) { m.delBufferPool(p, false) }
+func (m *BufferMain) delBufferPool(p *BufferPool, haveLock bool) {
+	if !haveLock {
+		m.Lock()
+	}
 	delete(m.PoolByName, p.Name)
-	m.Unlock()
+	if !haveLock {
+		m.Unlock()
+	}
 	for i := range p.memChunkIDs {
 		DmaFree(p.memChunkIDs[i])
 	}
