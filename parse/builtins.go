@@ -2,6 +2,7 @@ package parse
 
 import (
 	"regexp"
+	"unicode"
 )
 
 // Boolean parser accepting yes/no 0/1
@@ -71,7 +72,10 @@ func NewStringMap(a []string) (m StringMap) {
 }
 
 func (m StringMap) ParseWithArgs(in *Input, args *Args) {
-	text := in.Token()
+	text := in.TokenF(func(r rune) bool {
+		// Want to accept foo-bar as a token, otherwise terminate by punctuation.
+		return unicode.IsSpace(r) || (unicode.IsPunct(r) && r != '-')
+	})
 	if v, ok := m[text]; ok {
 		args.SetNextInt(uint64(v))
 	} else {

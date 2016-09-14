@@ -23,8 +23,9 @@ type Input struct {
 	sawEnd bool // read EOF or reader is nil.
 	buf    elib.ByteVec
 	save
-	saves saveVec
-	err   error
+	saves               saveVec
+	err                 error
+	strictSpaceMatching bool
 }
 
 func (in *Input) Init(r io.Reader) {
@@ -196,13 +197,13 @@ func (in *Input) Unread(size int) {
 	in.index -= size
 }
 
-func (in *Input) Token() (s string) {
+func (in *Input) TokenF(f func(rune) bool) (s string) {
 	in.Save()
 	in.skipSpace()
 	i0 := in.index
 	for !in.EndNoSkip() {
 		r, size := in.ReadRune()
-		if isSpace(r) {
+		if f(r) {
 			in.Unread(size)
 			break
 		}
@@ -216,6 +217,8 @@ func (in *Input) Token() (s string) {
 	return
 }
 
+func (in *Input) Token() (s string) { return in.TokenF(unicode.IsSpace) }
+
 func isSpace(r rune) bool { return unicode.IsSpace(r) }
 
 func (in *Input) skipSpace() (nSpace int) {
@@ -227,6 +230,12 @@ func (in *Input) skipSpace() (nSpace int) {
 		}
 		nSpace++
 	}
+	return
+}
+
+func (in *Input) InputSpaceMustMatchFormat(new bool) (old bool) {
+	old = in.strictSpaceMatching
+	in.strictSpaceMatching = new
 	return
 }
 
@@ -475,7 +484,11 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 
 			if fmtcSpace {
 				if !skippedSpace {
-					if ok = in.skipSpace() > 0; !ok {
+					minSpace := 0
+					if in.strictSpaceMatching {
+						minSpace = 1
+					}
+					if ok = in.skipSpace() >= minSpace; !ok {
 						break
 					}
 				}
@@ -504,6 +517,13 @@ func (in *Input) Parse(format string, args ...interface{}) (ok bool) {
 		}
 	}
 
+	return
+}
+
+func (in *Input) ParseLoose(format string, args ...interface{}) (ok bool) {
+	save := in.InputSpaceMustMatchFormat(false)
+	ok = in.Parse(format, args...)
+	in.InputSpaceMustMatchFormat(save)
 	return
 }
 
