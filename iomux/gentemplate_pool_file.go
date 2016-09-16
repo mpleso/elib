@@ -25,8 +25,12 @@ func (p *filePool) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
 }
 
-func (p *filePool) IsFree(i uint) (ok bool) {
-	return p.Pool.IsFree(i)
+func (p *filePool) IsFree(i uint) (v bool) {
+	v = i >= uint(len(p.files))
+	if !v {
+		v = p.Pool.IsFree(i)
+	}
+	return
 }
 
 func (p *filePool) Resize(n uint) {
@@ -57,4 +61,16 @@ func (p *filePool) Validate(i uint) {
 
 func (p *filePool) Elts() uint {
 	return uint(len(p.files)) - p.FreeLen()
+}
+
+func (p *filePool) Len() uint {
+	return uint(len(p.files))
+}
+
+func (p *filePool) Foreach(f func(x Filer)) {
+	for i := range p.files {
+		if !p.Pool.IsFree(uint(i)) {
+			f(p.files[i])
+		}
+	}
 }

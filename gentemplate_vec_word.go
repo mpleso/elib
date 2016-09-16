@@ -17,9 +17,22 @@ func (p *WordVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *WordVec) validate(i uint, zero *Word) *Word {
+func (p *WordVec) validate(new_len uint, zero *Word) *Word {
 	c := Index(cap(*p))
-	l := Index(i) + 1
+	lʹ := Index(len(*p))
+	l := Index(new_len)
+	if l <= c {
+		// Need to reslice to larger length?
+		if l >= lʹ {
+			*p = (*p)[:l]
+		}
+		return &(*p)[l-1]
+	}
+	return p.validateSlowPath(zero, c, l, lʹ)
+}
+
+func (p *WordVec) validateSlowPath(zero *Word,
+	c, l, lʹ Index) *Word {
 	if l > c {
 		cNext := NextResizeCap(l)
 		q := make([]Word, cNext, cNext)
@@ -31,12 +44,32 @@ func (p *WordVec) validate(i uint, zero *Word) *Word {
 		}
 		*p = q[:l]
 	}
-	if l > Index(len(*p)) {
+	if l > lʹ {
 		*p = (*p)[:l]
 	}
-	return &(*p)[i]
+	return &(*p)[l-1]
 }
-func (p *WordVec) Validate(i uint) *Word                { return p.validate(i, (*Word)(nil)) }
-func (p *WordVec) ValidateInit(i uint, zero Word) *Word { return p.validate(i, &zero) }
+
+func (p *WordVec) Validate(i uint) *Word {
+	return p.validate(i+1, (*Word)(nil))
+}
+
+func (p *WordVec) ValidateInit(i uint, zero Word) *Word {
+	return p.validate(i+1, &zero)
+}
+
+func (p *WordVec) ValidateLen(l uint) (v *Word) {
+	if l > 0 {
+		v = p.validate(l, (*Word)(nil))
+	}
+	return
+}
+
+func (p *WordVec) ValidateLenInit(l uint, zero Word) (v *Word) {
+	if l > 0 {
+		v = p.validate(l, &zero)
+	}
+	return
+}
 
 func (p WordVec) Len() uint { return uint(len(p)) }

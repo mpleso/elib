@@ -17,9 +17,22 @@ func (p *Int32Vec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *Int32Vec) validate(i uint, zero *int32) *int32 {
+func (p *Int32Vec) validate(new_len uint, zero *int32) *int32 {
 	c := Index(cap(*p))
-	l := Index(i) + 1
+	lʹ := Index(len(*p))
+	l := Index(new_len)
+	if l <= c {
+		// Need to reslice to larger length?
+		if l >= lʹ {
+			*p = (*p)[:l]
+		}
+		return &(*p)[l-1]
+	}
+	return p.validateSlowPath(zero, c, l, lʹ)
+}
+
+func (p *Int32Vec) validateSlowPath(zero *int32,
+	c, l, lʹ Index) *int32 {
 	if l > c {
 		cNext := NextResizeCap(l)
 		q := make([]int32, cNext, cNext)
@@ -31,12 +44,32 @@ func (p *Int32Vec) validate(i uint, zero *int32) *int32 {
 		}
 		*p = q[:l]
 	}
-	if l > Index(len(*p)) {
+	if l > lʹ {
 		*p = (*p)[:l]
 	}
-	return &(*p)[i]
+	return &(*p)[l-1]
 }
-func (p *Int32Vec) Validate(i uint) *int32                 { return p.validate(i, (*int32)(nil)) }
-func (p *Int32Vec) ValidateInit(i uint, zero int32) *int32 { return p.validate(i, &zero) }
+
+func (p *Int32Vec) Validate(i uint) *int32 {
+	return p.validate(i+1, (*int32)(nil))
+}
+
+func (p *Int32Vec) ValidateInit(i uint, zero int32) *int32 {
+	return p.validate(i+1, &zero)
+}
+
+func (p *Int32Vec) ValidateLen(l uint) (v *int32) {
+	if l > 0 {
+		v = p.validate(l, (*int32)(nil))
+	}
+	return
+}
+
+func (p *Int32Vec) ValidateLenInit(l uint, zero int32) (v *int32) {
+	if l > 0 {
+		v = p.validate(l, &zero)
+	}
+	return
+}
 
 func (p Int32Vec) Len() uint { return uint(len(p)) }

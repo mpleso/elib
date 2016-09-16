@@ -4,10 +4,10 @@
 package srpc
 
 import (
-	. "github.com/platinasystems/elib/elog"
+	"github.com/platinasystems/elib/elog"
 )
 
-var inputEventType = &EventType{
+var inputEventType = &elog.EventType{
 	Name: "srpc.inputEvent",
 }
 
@@ -16,28 +16,30 @@ func init() {
 	t.Stringer = stringer_inputEvent
 	t.Encode = encode_inputEvent
 	t.Decode = decode_inputEvent
-	RegisterType(inputEventType)
+	elog.RegisterType(inputEventType)
 }
 
-func stringer_inputEvent(e *Event) string {
+func stringer_inputEvent(e *elog.Event) string {
 	var x inputEvent
 	x.Decode(e.Data[:])
 	return x.String()
 }
 
-func encode_inputEvent(b []byte, e *Event) int {
+func encode_inputEvent(b []byte, e *elog.Event) int {
 	var x inputEvent
 	x.Decode(e.Data[:])
 	return x.Encode(b)
 }
 
-func decode_inputEvent(b []byte, e *Event) int {
+func decode_inputEvent(b []byte, e *elog.Event) int {
 	var x inputEvent
 	x.Decode(b)
 	return x.Encode(e.Data[:])
 }
 
-func (x inputEvent) Log() {
-	e := Add(inputEventType)
+func (x inputEvent) Log() { x.Logb(elog.DefaultBuffer) }
+
+func (x inputEvent) Logb(b *elog.Buffer) {
+	e := b.Add(inputEventType)
 	x.Encode(e.Data[:])
 }

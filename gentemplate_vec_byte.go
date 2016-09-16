@@ -17,9 +17,22 @@ func (p *ByteVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *ByteVec) validate(i uint, zero *byte) *byte {
+func (p *ByteVec) validate(new_len uint, zero *byte) *byte {
 	c := Index(cap(*p))
-	l := Index(i) + 1
+	lʹ := Index(len(*p))
+	l := Index(new_len)
+	if l <= c {
+		// Need to reslice to larger length?
+		if l >= lʹ {
+			*p = (*p)[:l]
+		}
+		return &(*p)[l-1]
+	}
+	return p.validateSlowPath(zero, c, l, lʹ)
+}
+
+func (p *ByteVec) validateSlowPath(zero *byte,
+	c, l, lʹ Index) *byte {
 	if l > c {
 		cNext := NextResizeCap(l)
 		q := make([]byte, cNext, cNext)
@@ -31,12 +44,32 @@ func (p *ByteVec) validate(i uint, zero *byte) *byte {
 		}
 		*p = q[:l]
 	}
-	if l > Index(len(*p)) {
+	if l > lʹ {
 		*p = (*p)[:l]
 	}
-	return &(*p)[i]
+	return &(*p)[l-1]
 }
-func (p *ByteVec) Validate(i uint) *byte                { return p.validate(i, (*byte)(nil)) }
-func (p *ByteVec) ValidateInit(i uint, zero byte) *byte { return p.validate(i, &zero) }
+
+func (p *ByteVec) Validate(i uint) *byte {
+	return p.validate(i+1, (*byte)(nil))
+}
+
+func (p *ByteVec) ValidateInit(i uint, zero byte) *byte {
+	return p.validate(i+1, &zero)
+}
+
+func (p *ByteVec) ValidateLen(l uint) (v *byte) {
+	if l > 0 {
+		v = p.validate(l, (*byte)(nil))
+	}
+	return
+}
+
+func (p *ByteVec) ValidateLenInit(l uint, zero byte) (v *byte) {
+	if l > 0 {
+		v = p.validate(l, &zero)
+	}
+	return
+}
 
 func (p ByteVec) Len() uint { return uint(len(p)) }

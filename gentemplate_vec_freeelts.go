@@ -17,9 +17,22 @@ func (p *freeEltsVec) Resize(n uint) {
 	*p = (*p)[:l]
 }
 
-func (p *freeEltsVec) validate(i uint, zero *freeEltVec) *freeEltVec {
+func (p *freeEltsVec) validate(new_len uint, zero *freeEltVec) *freeEltVec {
 	c := Index(cap(*p))
-	l := Index(i) + 1
+	lʹ := Index(len(*p))
+	l := Index(new_len)
+	if l <= c {
+		// Need to reslice to larger length?
+		if l >= lʹ {
+			*p = (*p)[:l]
+		}
+		return &(*p)[l-1]
+	}
+	return p.validateSlowPath(zero, c, l, lʹ)
+}
+
+func (p *freeEltsVec) validateSlowPath(zero *freeEltVec,
+	c, l, lʹ Index) *freeEltVec {
 	if l > c {
 		cNext := NextResizeCap(l)
 		q := make([]freeEltVec, cNext, cNext)
@@ -31,12 +44,32 @@ func (p *freeEltsVec) validate(i uint, zero *freeEltVec) *freeEltVec {
 		}
 		*p = q[:l]
 	}
-	if l > Index(len(*p)) {
+	if l > lʹ {
 		*p = (*p)[:l]
 	}
-	return &(*p)[i]
+	return &(*p)[l-1]
 }
-func (p *freeEltsVec) Validate(i uint) *freeEltVec                      { return p.validate(i, (*freeEltVec)(nil)) }
-func (p *freeEltsVec) ValidateInit(i uint, zero freeEltVec) *freeEltVec { return p.validate(i, &zero) }
+
+func (p *freeEltsVec) Validate(i uint) *freeEltVec {
+	return p.validate(i+1, (*freeEltVec)(nil))
+}
+
+func (p *freeEltsVec) ValidateInit(i uint, zero freeEltVec) *freeEltVec {
+	return p.validate(i+1, &zero)
+}
+
+func (p *freeEltsVec) ValidateLen(l uint) (v *freeEltVec) {
+	if l > 0 {
+		v = p.validate(l, (*freeEltVec)(nil))
+	}
+	return
+}
+
+func (p *freeEltsVec) ValidateLenInit(l uint, zero freeEltVec) (v *freeEltVec) {
+	if l > 0 {
+		v = p.validate(l, &zero)
+	}
+	return
+}
 
 func (p freeEltsVec) Len() uint { return uint(len(p)) }
