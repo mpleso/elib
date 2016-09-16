@@ -4,7 +4,6 @@ import (
 	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cpu"
 
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -47,9 +46,7 @@ type Ref struct {
 	opaque [RefOpaqueBytes]byte
 }
 
-func (r *RefHeader) h() *RefHeader          { return r }
 func (r *RefHeader) offset() uint32         { return r.offsetAndFlags &^ 0xf }
-func (dst *RefHeader) copyOffset(src *Ref)  { dst.offsetAndFlags |= src.offset() }
 func (r *RefHeader) Buffer() unsafe.Pointer { return DmaGetPointer(uint(r.offset())) }
 func (r *RefHeader) GetBuffer() *Buffer     { return (*Buffer)(r.Buffer()) }
 func (r *RefHeader) Data() unsafe.Pointer {
@@ -60,7 +57,7 @@ func (r *RefHeader) DataPhys() uintptr { return DmaPhysAddress(uintptr(r.Data())
 func (r *RefHeader) Flags() BufferFlag         { return BufferFlag(r.offsetAndFlags & 0xf) }
 func (r *RefHeader) NextValidFlag() BufferFlag { return BufferFlag(r.offsetAndFlags) & NextValid }
 func (r *RefHeader) NextIsValid() bool         { return r.NextValidFlag() != 0 }
-func (r *RefHeader) setNextValid()             { r.offsetAndFlags |= uint32(NextValid) }
+func (r *RefHeader) SetFlags(f BufferFlag)     { r.offsetAndFlags |= uint32(f) }
 func (r *RefHeader) nextValidUint() uint       { return uint(1 & (r.offsetAndFlags >> Log2NextValid)) }
 
 func RefFlag1(f BufferFlag, r0 *RefHeader) bool { return r0.offsetAndFlags&uint32(f) != 0 }
@@ -69,6 +66,10 @@ func RefFlag2(f BufferFlag, r0, r1 *RefHeader) bool {
 }
 func RefFlag4(f BufferFlag, r0, r1, r2, r3 *RefHeader) bool {
 	return (r0.offsetAndFlags|r1.offsetAndFlags|r2.offsetAndFlags|r3.offsetAndFlags)&uint32(f) != 0
+}
+func refFlag1(f BufferFlag, r0 *Ref) bool { return RefFlag1(f, &r0.RefHeader) }
+func refFlag4(f BufferFlag, r0, r1, r2, r3 *Ref) bool {
+	return RefFlag4(f, &r0.RefHeader, &r1.RefHeader, &r2.RefHeader, &r3.RefHeader)
 }
 
 func (r *RefHeader) DataSlice() (b []byte) {
@@ -100,9 +101,11 @@ const (
 	// Cache aligned/sized space for buffer header.
 	BufferHeaderBytes = cpu.CacheLineBytes
 	// Rewrite (prepend) area.
-	BufferRewriteBytes = 128
+	BufferRewriteBytes = 64
 	overheadBytes      = BufferHeaderBytes + BufferRewriteBytes
 )
+
+type BufferSave uint32
 
 // Buffer header.
 type BufferHeader struct {
@@ -111,7 +114,12 @@ type BufferHeader struct {
 
 	// Number of clones of this buffer.
 	cloneCount uint32
+
+	save BufferSave
 }
+
+func (h *BufferHeader) SetSave(x BufferSave) { h.save = x }
+func (h *BufferHeader) GetSave() BufferSave  { return h.save }
 
 func (r *RefHeader) NextRef() (x *RefHeader) {
 	if r.Flags()&NextValid != 0 {
@@ -120,15 +128,65 @@ func (r *RefHeader) NextRef() (x *RefHeader) {
 	return
 }
 
+func LinkRefs(as, bs, cs *RefHeader, chain_len, n uint) {
+	b, c := bs.slice(n), cs.slice(n)
+	var a []Ref
+	if as != nil {
+		a = as.slice(n)
+	}
+	i, n_left := uint(0), n
+
+	if a != nil {
+		for n_left > 0 {
+			ra0 := &a[i+0]
+			rb0 := &b[i+0]
+			rc0 := &c[i+0]
+			a0 := ra0.GetBuffer()
+			b0 := rb0.GetBuffer()
+			a0.nextRef.SetFlags(NextValid)
+			b0.nextRef = rc0.RefHeader
+			n_left -= 1
+			i += 1
+		}
+	} else {
+		for n_left >= 4 {
+			rb0, rb1, rb2, rb3 := &b[i+0], &b[i+1], &b[i+2], &b[i+3]
+			rc0, rc1, rc2, rc3 := &c[i+0], &c[i+1], &c[i+2], &c[i+3]
+			b0, b1, b2, b3 := rb0.GetBuffer(), rb1.GetBuffer(), rb2.GetBuffer(), rb3.GetBuffer()
+			rb0.SetFlags(NextValid)
+			rb1.SetFlags(NextValid)
+			rb2.SetFlags(NextValid)
+			rb3.SetFlags(NextValid)
+			b0.nextRef = rc0.RefHeader
+			b1.nextRef = rc1.RefHeader
+			b2.nextRef = rc2.RefHeader
+			b3.nextRef = rc3.RefHeader
+			n_left -= 4
+			i += 4
+		}
+
+		for n_left > 0 {
+			rb0 := &b[i+0]
+			rc0 := &c[i+0]
+			b0 := rb0.GetBuffer()
+			rb0.SetFlags(NextValid)
+			b0.nextRef = rc0.RefHeader
+			n_left -= 1
+			i += 1
+		}
+	}
+}
+
 type Buffer struct {
 	BufferHeader
 	Opaque [BufferHeaderBytes - unsafe.Sizeof(BufferHeader{})]byte
 }
 
-func (b *Buffer) reset(p *BufferPool) { *b = p.Buffer }
-
 type BufferPool struct {
 	m *BufferMain
+
+	// Index in bufferPools
+	index uint32
 
 	Name string
 
@@ -149,16 +207,18 @@ type BufferPool struct {
 	freeNext freeNext
 }
 
+//go:generate gentemplate -d Package=hw -id bufferPools -d PoolType=bufferPools -d Type=*BufferPool -d Data=elts github.com/platinasystems/elib/pool.tmpl
+
 type bufferState uint8
 
 const (
-	BufferUnknown = iota
+	BufferUnknown bufferState = iota
 	BufferKnownAllocated
 	BufferKnownFree
 )
 
 var bufferStateStrings = [...]string{
-	BufferUnknown:        "unkown",
+	BufferUnknown:        "unknown",
 	BufferKnownAllocated: "known-allocated",
 	BufferKnownFree:      "known-free",
 }
@@ -176,6 +236,12 @@ func (p *BufferPool) setState(offset uint32, new bufferState) (old bufferState) 
 	old = p.m.bufferStateByOffset[offset]
 	p.m.bufferStateByOffset[offset] = new
 	return
+}
+
+func (p *BufferPool) unsetState(offset uint32) {
+	if trackBufferState {
+		delete(p.m.bufferStateByOffset, offset)
+	}
 }
 
 func (r *RefHeader) ValidateState(m *BufferMain, want bufferState) (invalid bool) {
@@ -232,16 +298,14 @@ var DefaultBufferTemplate = &BufferTemplate{
 	Size: 512,
 	Ref:  Ref{RefHeader: RefHeader{dataOffset: BufferRewriteBytes}},
 }
-var DefaultBufferPool = &BufferPool{
-	Name:           "default",
-	BufferTemplate: *DefaultBufferTemplate,
-}
 
 func (p *BufferPool) Init() {
 	t := &p.BufferTemplate
 	if len(t.Data) > 0 {
 		t.Ref.dataLen = uint16(len(t.Data))
 	}
+	// User does not get to choose buffer header.
+	t.Buffer.BufferHeader = BufferHeader{save: t.Buffer.BufferHeader.save}
 	p.Size = uint(elib.Word(p.Size).RoundCacheLine())
 	p.sizeIncludingOverhead = p.bufferSize()
 	p.Size = p.sizeIncludingOverhead - overheadBytes
@@ -251,11 +315,10 @@ type BufferMain struct {
 	sync.Mutex
 
 	PoolByName map[string]*BufferPool
+	bufferPools
 
 	bufferStateByOffset map[uint32]bufferState
 }
-
-func (m *BufferMain) Init() { m.AddBufferPool(DefaultBufferPool) }
 
 func (m *BufferMain) AddBufferPool(p *BufferPool) {
 	p.m = m
@@ -266,31 +329,33 @@ func (m *BufferMain) AddBufferPool(p *BufferPool) {
 	if m.PoolByName == nil {
 		m.PoolByName = make(map[string]*BufferPool)
 	}
-	save := p.Data
-	if q, ok := m.PoolByName[p.Name]; ok {
-		m.delBufferPool(q, true)
+	var exists bool
+	if _, exists = m.PoolByName[p.Name]; !exists {
+		p.index = uint32(m.bufferPools.GetIndex())
+		m.bufferPools.elts[p.index] = p
+		m.PoolByName[p.Name] = p
 	}
-	p.Data = save
-	m.PoolByName[p.Name] = p
 	m.Unlock()
-	p.Init()
+	if !exists {
+		p.Init()
+	}
 }
 
-func (m *BufferMain) DelBufferPool(p *BufferPool) { m.delBufferPool(p, false) }
-func (m *BufferMain) delBufferPool(p *BufferPool, haveLock bool) {
-	if !haveLock {
-		m.Lock()
-	}
+func (m *BufferMain) DelBufferPool(p *BufferPool) {
+	m.Lock()
 	delete(m.PoolByName, p.Name)
-	if !haveLock {
-		m.Unlock()
-	}
+	m.bufferPools.PutIndex(uint(p.index))
+	m.bufferPools.elts[p.index] = nil
+	m.Unlock()
 	for i := range p.memChunkIDs {
 		DmaFree(p.memChunkIDs[i])
 	}
 	// Unlink garbage.
 	p.DmaMemAllocBytes = 0
 	p.memChunkIDs = nil
+	for i := range p.refs {
+		p.unsetState(p.refs[i].offset())
+	}
 	p.refs = nil
 	p.Data = nil
 }
@@ -310,11 +375,8 @@ func (p *BufferPool) AllocRefs(r *RefHeader, n uint) { p.AllocRefsStride(r, n, 1
 func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	var got uint
-	for {
-		if got = p.FreeLen(); got >= want {
-			break
-		}
+	got := p.FreeLen()
+	for got < want {
 		b := p.sizeIncludingOverhead
 		n_alloc := uint(elib.RoundPow2(elib.Word(want-got), 256))
 		nb := n_alloc * b
@@ -330,14 +392,21 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 		// Refs are allocated from end of refs so we put smallest offsets there.
 		o := offset + (n_alloc-1)*b
 		for i := uint(0); i < n_alloc; i++ {
-			r := p.Ref
+			// Initialize buffer ref from template.
+			r := p.BufferTemplate.Ref
 			r.offsetAndFlags += uint32(o)
 			p.refs[ri] = r
 			ri++
 			o -= b
-			if p.Data != nil {
+
+			// Initialize buffer itself from template.
+			b := r.GetBuffer()
+			*b = p.BufferTemplate.Buffer
+
+			// Initialize buffer data from template.
+			if p.BufferTemplate.Data != nil {
 				d := r.DataSlice()
-				copy(d, p.Data)
+				copy(d, p.BufferTemplate.Data)
 			}
 		}
 		got += n_alloc
@@ -345,36 +414,38 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 		p.InitRefs(p.refs[got-n_alloc : got])
 	}
 
-	pr := p.refs[got-want : got]
-
 	refs := r.slice(want * stride)
+	copyRefs(refs, p.refs[got-want:got], stride)
+
+	p.refs = p.refs[:got-want]
+	p.validateRefs(refs, BufferKnownAllocated, stride)
+}
+
+func (p *BufferPool) AllocCachedRefs() (r RefVec) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	r, p.refs = p.refs, nil
+	p.validateRefs(r, BufferKnownAllocated, 1)
+	return
+}
+
+func copyRefs(dst, src []Ref, stride uint) {
 	if stride == 1 {
-		copy(refs, pr)
+		copy(dst, src)
 	} else {
-		i, ri := uint(0), uint(0)
-		for i+4 < want {
-			refs[ri+0*stride] = pr[i+0]
-			refs[ri+1*stride] = pr[i+1]
-			refs[ri+2*stride] = pr[i+2]
-			refs[ri+3*stride] = pr[i+3]
+		i, ri, n := uint(0), uint(0), uint(len(dst))
+		for i+4 <= n {
+			dst[ri+0*stride] = src[i+0]
+			dst[ri+1*stride] = src[i+1]
+			dst[ri+2*stride] = src[i+2]
+			dst[ri+3*stride] = src[i+3]
 			i += 4
 			ri += 4 * stride
 		}
-		for i < want {
-			refs[ri+0*stride] = pr[i+0]
+		for i < n {
+			dst[ri+0*stride] = src[i+0]
 			i += 1
 			ri += 1 * stride
-		}
-	}
-
-	p.refs = p.refs[:got-want]
-
-	if trackBufferState {
-		for i := uint(0); i < uint(len(refs)); i += stride {
-			s := p.setState(refs[i].offset(), BufferKnownAllocated)
-			if s == BufferKnownAllocated {
-				panic("duplicate alloc")
-			}
 		}
 	}
 }
@@ -384,17 +455,39 @@ type freeNext struct {
 	refs  RefVec
 }
 
-var duplicateFreeErr = errors.New("duplicate free")
+func (p *BufferPool) validateRef(r RefHeader, set bufferState) {
+	if !trackBufferState {
+		return
+	}
+	s := p.setState(r.offset(), set)
+	expect := BufferKnownAllocated
+	if set == BufferKnownAllocated {
+		// Accept either known free or unknown (for initial allocation).
+		expect = BufferKnownFree
+		if s == BufferUnknown {
+			expect = BufferUnknown
+		}
+	}
+	if s != expect {
+		panic(fmt.Errorf("validate buffer offset 0x%x: want %s != got %s", r.offset(), expect, s))
+	}
+}
+
+func (p *BufferPool) validateRefs(r []Ref, set bufferState, stride uint) {
+	if !trackBufferState {
+		return
+	}
+	for i := uint(0); i < uint(len(r)); i += stride {
+		p.validateRef(r[i].RefHeader, set)
+	}
+}
 
 func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
 	if !r.NextIsValid() {
 		return
 	}
 	for {
-		s := p.setState(nextRef.offset(), BufferKnownFree)
-		if s != BufferKnownAllocated {
-			panic(duplicateFreeErr)
-		}
+		p.validateRef(nextRef, BufferKnownFree)
 		f.refs.Validate(f.count)
 		f.refs[f.count].RefHeader = nextRef
 		f.count++
@@ -406,6 +499,86 @@ func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
 	}
 }
 
+func (dst *RefHeader) copyOffset(src *Ref) { dst.offsetAndFlags |= src.offset() }
+
+func (p *BufferPool) free4(dst, src []Ref, i uint, tmp *BufferTemplate) (slowPath bool, n0, n1, n2, n3 RefHeader) {
+	r0, r1, r2, r3 := &src[i+0], &src[i+1], &src[i+2], &src[i+3]
+	t := tmp.Ref
+	dst[i+0], dst[i+1], dst[i+2], dst[i+3] = t, t, t, t
+	dst[i+0].copyOffset(r0)
+	dst[i+1].copyOffset(r1)
+	dst[i+2].copyOffset(r2)
+	dst[i+3].copyOffset(r3)
+
+	b0, b1, b2, b3 := r0.GetBuffer(), r1.GetBuffer(), r2.GetBuffer(), r3.GetBuffer()
+	n0, n1, n2, n3 = b0.nextRef, b1.nextRef, b2.nextRef, b3.nextRef
+	save0, save1, save2, save3 := b0.save, b1.save, b2.save, b3.save
+
+	b := tmp.Buffer
+	*b0, *b1, *b2, *b3 = b, b, b, b
+	b0.save, b1.save, b2.save, b3.save = save0, save1, save2, save3
+
+	slowPath = refFlag4(NextValid, r0, r1, r2, r3)
+	return
+}
+
+func (p *BufferPool) free1(dst, src []Ref, i uint, tmp *BufferTemplate) (slow bool, n0 RefHeader) {
+	r0 := &src[i+0]
+	t := tmp.Ref
+	dst[i+0] = t
+	dst[i+0].copyOffset(r0)
+
+	b0 := r0.GetBuffer()
+	n0 = b0.nextRef
+	save0 := b0.save
+
+	b := tmp.Buffer
+	*b0 = b
+	b0.save = save0
+
+	slow = refFlag1(NextValid, r0)
+	return
+}
+
+func (p *BufferPool) freeRefsNext(dst, src []Ref, n uint, tmp *BufferTemplate) {
+	i := uint(0)
+	for n >= 4 {
+		slow, n0, n1, n2, n3 := p.free4(dst, src, i, tmp)
+		i += 4
+		n -= 4
+		if slow {
+			p.freeNext.add(p, &src[i-4], n0)
+			p.freeNext.add(p, &src[i-3], n1)
+			p.freeNext.add(p, &src[i-2], n2)
+			p.freeNext.add(p, &src[i-1], n3)
+		}
+	}
+
+	for n > 0 {
+		slow, n0 := p.free1(dst, src, i, tmp)
+		i += 1
+		n -= 1
+		if slow {
+			p.freeNext.add(p, &src[i-1], n0)
+		}
+	}
+}
+
+func (p *BufferPool) freeRefsNoNext(dst, src []Ref, n uint, tmp *BufferTemplate) {
+	i := uint(0)
+	for n >= 4 {
+		p.free4(dst, src, i, tmp)
+		i += 4
+		n -= 4
+	}
+
+	for n > 0 {
+		p.free1(dst, src, i, tmp)
+		i += 1
+		n -= 1
+	}
+}
+
 // Return all buffers to pool and reset for next usage.
 // freeNext specifies whether or not to follow and free next pointers.
 func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
@@ -413,95 +586,24 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
 
-	if trackBufferState {
-		for i := range toFree {
-			s := p.setState(toFree[i].offset(), BufferKnownFree)
-			if s != BufferKnownAllocated {
-				panic(duplicateFreeErr)
-			}
-		}
-	}
+	p.validateRefs(toFree, BufferKnownFree, 1)
 
 	initialLen := p.FreeLen()
 	p.refs.Resize(n)
 	r := p.refs[initialLen:]
 
-	p.freeNext.count = 0
-
-	t := p.Ref
-	i := 0
-	for n >= 4 {
-		r0, r1, r2, r3 := &toFree[i+0], &toFree[i+1], &toFree[i+2], &toFree[i+3]
-		b0, b1, b2, b3 := r0.GetBuffer(), r1.GetBuffer(), r2.GetBuffer(), r3.GetBuffer()
-		r[i+0], r[i+1], r[i+2], r[i+3] = t, t, t, t
-		r[i+0].copyOffset(r0)
-		r[i+1].copyOffset(r1)
-		r[i+2].copyOffset(r2)
-		r[i+3].copyOffset(r3)
-		n0, n1, n2, n3 := b0.nextRef, b1.nextRef, b2.nextRef, b3.nextRef
-		b0.reset(p)
-		b1.reset(p)
-		b2.reset(p)
-		b3.reset(p)
-		i += 4
-		n -= 4
-		if RefFlag4(NextValid, r0.h(), r1.h(), r2.h(), r3.h()) {
-			if freeNext {
-				p.freeNext.add(p, r0, n0)
-				p.freeNext.add(p, r1, n1)
-				p.freeNext.add(p, r2, n2)
-				p.freeNext.add(p, r3, n3)
-			}
-		}
-	}
-
-	for n > 0 {
-		r0 := &toFree[i+0]
-		b0 := r0.GetBuffer()
-		r[i+0] = t
-		r[i+0].copyOffset(r0)
-		n0 := b0.nextRef
-		b0.reset(p)
-		i += 1
-		n -= 1
-		if RefFlag1(NextValid, r0.h()) {
-			if freeNext {
-				p.freeNext.add(p, r0, n0)
-			}
-		}
-	}
-
-	if f := &p.freeNext; f.count > 0 {
-		n = f.count
-		l := len(p.refs)
-		p.refs.Resize(n)
-		r := p.refs[l:]
-
-		i = 0
-		for n >= 4 {
-			r0, r1, r2, r3 := &f.refs[i+0], &f.refs[i+1], &f.refs[i+2], &f.refs[i+3]
-			b0, b1, b2, b3 := r0.GetBuffer(), r1.GetBuffer(), r2.GetBuffer(), r3.GetBuffer()
-			r[i+0], r[i+1], r[i+2], r[i+3] = t, t, t, t
-			r[i+0].copyOffset(r0)
-			r[i+1].copyOffset(r1)
-			r[i+2].copyOffset(r2)
-			r[i+3].copyOffset(r3)
-			b0.reset(p)
-			b1.reset(p)
-			b2.reset(p)
-			b3.reset(p)
-			i += 4
-			n -= 4
-		}
-
-		for n > 0 {
-			r0 := &f.refs[i+0]
-			b0 := r0.GetBuffer()
-			r[i+0] = t
-			r[i+0].copyOffset(r0)
-			b0.reset(p)
-			i += 1
-			n -= 1
+	tmp := &p.BufferTemplate
+	if !freeNext {
+		p.freeRefsNoNext(r, toFree, n, tmp)
+	} else {
+		fn := &p.freeNext
+		fn.count = 0
+		p.freeRefsNext(r, toFree, n, tmp)
+		if m := fn.count; m > 0 {
+			l := len(p.refs)
+			p.refs.Resize(m)
+			r := p.refs[l:]
+			p.freeRefsNoNext(r, fn.refs, m, tmp)
 		}
 	}
 
@@ -577,7 +679,7 @@ func (c *RefChain) Append(r *RefHeader) {
 	}
 	*c.tail = *r
 	if c.prev_tail != nil {
-		c.prev_tail.setNextValid()
+		c.prev_tail.SetFlags(NextValid)
 	}
 	tail := r
 	for {
@@ -593,9 +695,20 @@ func (c *RefChain) Append(r *RefHeader) {
 }
 
 // Length in buffer chain.
-func (r *RefHeader) TotalLen() (l uint) {
+func (r *RefHeader) ChainLen() (l uint) {
 	for {
 		l += r.DataLen()
+		if r = r.NextRef(); r == nil {
+			break
+		}
+	}
+	return
+}
+
+func (r *RefHeader) ChainSlice(bʹ []byte) (b []byte) {
+	b = bʹ[:0]
+	for {
+		b = append(b, r.DataSlice()...)
 		if r = r.NextRef(); r == nil {
 			break
 		}
