@@ -85,14 +85,16 @@ func (n *Node) freeActivePoller(l *Loop) {
 	n.activePollerIndex = ^uint(0)
 }
 
-func (n *Node) Activate(enable bool) {
-	if n.active != enable {
+func (n *Node) Activate(enable bool) (was bool) {
+	was = n.active
+	if was != enable {
 		n.active = enable
 		// Interrupt event wait to poll active nodes.
 		if enable {
 			n.loop.Interrupt()
 		}
 	}
+	return
 }
 
 type Noder interface {
