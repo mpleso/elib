@@ -433,7 +433,7 @@ func copyRefs(dst, src []Ref, stride uint) {
 	if stride == 1 {
 		copy(dst, src)
 	} else {
-		i, ri, n := uint(0), uint(0), uint(len(dst))
+		i, ri, n := uint(0), uint(0), uint(len(src))
 		for i+4 <= n {
 			dst[ri+0*stride] = src[i+0]
 			dst[ri+1*stride] = src[i+1]
