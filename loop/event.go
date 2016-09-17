@@ -252,4 +252,4 @@ func (e *quitEvent) String() string { return quitEventTypeStrings[e.Type] }
 func (e *quitEvent) Error() string  { return e.String() }
 func (e *quitEvent) EventAction()   {}
 func (l *Loop) Quit()               { l.addEvent(l.getLoopEvent(ErrQuit), true) }
-func (l *Loop) Interrupt()          { l.addEvent(l.getLoopEvent(ErrInterrupt), true) }
+func (l *Loop) Interrupt()          { l.addEvent(l.getLoopEvent(ErrInterrupt), false) }
