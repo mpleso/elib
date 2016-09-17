@@ -243,7 +243,7 @@ func (l *Loop) timerInit() {
 	t.Cycles(1 * cpu.Second)
 	l.cyclesPerSec = float64(t)
 	l.secsPerCycle = 1 / l.cyclesPerSec
-	l.timeDurationPerCycle = l.secsPerCycle / float64(time.Second)
+	l.timeDurationPerCycle = l.secsPerCycle * float64(time.Second)
 }
 
 type initHook func(l *Loop)
