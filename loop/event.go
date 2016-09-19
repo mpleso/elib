@@ -38,6 +38,7 @@ func (l *eventLoop) getLoopEvent(a event.Actor) (x *loopEvent) {
 	} else {
 		x = &loopEvent{actor: a}
 	}
+	x.l = l.l
 	return
 }
 func (l *eventLoop) putLoopEvent(x *loopEvent) { l.loopEvents.Put(x) }
@@ -49,6 +50,7 @@ type eventNode struct {
 }
 
 type loopEvent struct {
+	l     *Loop
 	actor event.Actor
 	dst   *Node
 	time  cpu.Time
@@ -97,18 +99,18 @@ func (e *loopEvent) EventAction() {
 		e.dst.rxEvents <- e
 		e.dst.active = true
 	} else {
-		e.do(l)
+		e.do()
 	}
 }
 
-func (e *loopEvent) do(l *Loop) {
+func (e *loopEvent) do() {
 	if elog.Enabled() {
 		le := eventElogEvent{}
 		copy(le.s[:], e.String())
 		le.Log()
 	}
 	e.actor.EventAction()
-	l.putLoopEvent(e)
+	e.l.putLoopEvent(e)
 }
 
 func (e *loopEvent) String() string { return e.actor.String() }
@@ -122,7 +124,7 @@ func (l *Loop) doEvent(e *loopEvent) {
 			l.Quit()
 		}
 	}()
-	e.do(l)
+	e.do()
 }
 
 func (l *Loop) eventHandler(p EventHandler) {
