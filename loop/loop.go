@@ -97,6 +97,20 @@ func (n *Node) Activate(enable bool) (was bool) {
 	return
 }
 
+type activateEvent struct{ n *Node }
+
+func (e *activateEvent) EventAction()   { e.n.Activate(true) }
+func (e *activateEvent) String() string { return fmt.Sprintf("activate %s", e.n.name) }
+
+func (n *Node) ActivateAfterTime(dt float64) {
+	if n.active {
+		n.active = false
+		n.activateEvent.n = n
+		le := n.loop.getLoopEvent(&n.activateEvent)
+		n.loop.addTimedEvent(le, dt)
+	}
+}
+
 type Noder interface {
 	GetNode() *Node
 }
@@ -245,6 +259,8 @@ func (l *Loop) timerInit() {
 	l.secsPerCycle = 1 / l.cyclesPerSec
 	l.timeDurationPerCycle = l.secsPerCycle * float64(time.Second)
 }
+
+func (l *Loop) TimeDiff(t0, t1 cpu.Time) float64 { return float64(t1-t0) * l.secsPerCycle }
 
 type initHook func(l *Loop)
 

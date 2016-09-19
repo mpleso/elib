@@ -43,6 +43,7 @@ func (l *eventLoop) getLoopEvent(a event.Actor) (x *loopEvent) {
 func (l *eventLoop) putLoopEvent(x *loopEvent) { l.loopEvents.Put(x) }
 
 type eventNode struct {
+	activateEvent
 	rxEvents chan *loopEvent
 	eventVec event.ActorVec
 }
@@ -95,7 +96,19 @@ func (e *loopEvent) EventAction() {
 	if e.dst != nil {
 		e.dst.rxEvents <- e
 		e.dst.active = true
+	} else {
+		e.do(l)
 	}
+}
+
+func (e *loopEvent) do(l *Loop) {
+	if elog.Enabled() {
+		le := eventElogEvent{}
+		copy(le.s[:], e.String())
+		le.Log()
+	}
+	e.actor.EventAction()
+	l.putLoopEvent(e)
 }
 
 func (e *loopEvent) String() string { return e.actor.String() }
@@ -109,13 +122,7 @@ func (l *Loop) doEvent(e *loopEvent) {
 			l.Quit()
 		}
 	}()
-	if elog.Enabled() {
-		le := eventElogEvent{}
-		copy(le.s[:], e.String())
-		le.Log()
-	}
-	e.actor.EventAction()
-	l.putLoopEvent(e)
+	e.do(l)
 }
 
 func (l *Loop) eventHandler(p EventHandler) {
