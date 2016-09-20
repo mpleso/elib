@@ -247,7 +247,7 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 
 	/* Anything that begins with a / is a local Unix file socket. */
 	af := syscall.AF_INET
-	if cfg[0] == '/' {
+	if len(cfg) > 0 && cfg[0] == '/' {
 		sa = &syscall.SockaddrUnix{Name: cfg}
 		af = syscall.AF_UNIX
 	} else {
@@ -255,7 +255,7 @@ func (s *socket) Config(cfg string, flags Flags) (err error) {
 		if _, err = fmt.Sscanf(cfg, "%s", &a); err == nil {
 			sa = &syscall.SockaddrInet4{Addr: a.Address, Port: int(a.Port)}
 		} else {
-			err = fmt.Errorf("failed to parse valid config: %s %s", cfg, err)
+			err = fmt.Errorf("failed to parse config from `%s': %s", cfg, err)
 			return
 		}
 	}
