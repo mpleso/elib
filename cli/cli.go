@@ -170,9 +170,8 @@ var (
 	ParseError   = errors.New("parse error") // generic parse error
 )
 
-func (m *Main) lookup() (Commander, error) {
+func (m *Main) lookup(in *Input) (Commander, error) {
 	sub := &m.rootCmd
-	in := &m.in
 	for !in.End() {
 		text := in.Token()
 		name := normalizeName(text)
@@ -206,11 +205,9 @@ func (m *Main) lookup() (Commander, error) {
 	return nil, ErrAmbiguous
 }
 
-func (m *Main) Exec(w io.Writer, r io.Reader) (err error) {
-	in := &m.in
-	in.Init(r)
+func (m *Main) ExecInput(w io.Writer, in *Input) (err error) {
 	var c Commander
-	c, err = m.lookup()
+	c, err = m.lookup(in)
 	if err == nil {
 		defer func() {
 			if e := recover(); e != nil {
@@ -222,11 +219,18 @@ func (m *Main) Exec(w io.Writer, r io.Reader) (err error) {
 	return
 }
 
+func (m *Main) Exec(w io.Writer, r io.Reader) error {
+	in := &m.in
+	in.Init(r)
+	return m.ExecInput(w, in)
+}
+
 var Default = &Main{
 	Prompt: "# ",
 }
 
 func (c *Main) Add(name string, action Action) { c.AddCommand(&Command{Name: name, Action: action}) }
 
-func AddCommand(c Commander)              { Default.AddCommand(c) }
-func Exec(w io.Writer, r io.Reader) error { return Default.Exec(w, r) }
+func AddCommand(c Commander)                 { Default.AddCommand(c) }
+func ExecInput(w io.Writer, in *Input) error { return Default.ExecInput(w, in) }
+func Exec(w io.Writer, r io.Reader) error    { return Default.Exec(w, r) }
