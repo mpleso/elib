@@ -25,8 +25,12 @@ func (p *timedEventPool) PutIndex(i uint) (ok bool) {
 	return p.Pool.PutIndex(i)
 }
 
-func (p *timedEventPool) IsFree(i uint) (ok bool) {
-	return p.Pool.IsFree(i)
+func (p *timedEventPool) IsFree(i uint) (v bool) {
+	v = i >= uint(len(p.events))
+	if !v {
+		v = p.Pool.IsFree(i)
+	}
+	return
 }
 
 func (p *timedEventPool) Resize(n uint) {
@@ -61,4 +65,12 @@ func (p *timedEventPool) Elts() uint {
 
 func (p *timedEventPool) Len() uint {
 	return uint(len(p.events))
+}
+
+func (p *timedEventPool) Foreach(f func(x TimedActor)) {
+	for i := range p.events {
+		if !p.Pool.IsFree(uint(i)) {
+			f(p.events[i])
+		}
+	}
 }
