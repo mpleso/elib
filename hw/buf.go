@@ -209,10 +209,10 @@ type BufferPool struct {
 
 //go:generate gentemplate -d Package=hw -id bufferPools -d PoolType=bufferPools -d Type=*BufferPool -d Data=elts github.com/platinasystems/elib/pool.tmpl
 
-type bufferState uint8
+type BufferState uint8
 
 const (
-	BufferUnknown bufferState = iota
+	BufferUnknown BufferState = iota
 	BufferKnownAllocated
 	BufferKnownFree
 )
@@ -223,15 +223,15 @@ var bufferStateStrings = [...]string{
 	BufferKnownFree:      "known-free",
 }
 
-func (s bufferState) String() string { return elib.Stringer(bufferStateStrings[:], int(s)) }
+func (s BufferState) String() string { return elib.Stringer(bufferStateStrings[:], int(s)) }
 
 var trackBufferState = elib.Debug
 
-func (p *BufferPool) setState(offset uint32, new bufferState) (old bufferState) {
+func (p *BufferPool) setState(offset uint32, new BufferState) (old BufferState) {
 	p.m.Lock()
 	defer p.m.Unlock()
 	if p.m.bufferStateByOffset == nil {
-		p.m.bufferStateByOffset = make(map[uint32]bufferState)
+		p.m.bufferStateByOffset = make(map[uint32]BufferState)
 	}
 	old = p.m.bufferStateByOffset[offset]
 	p.m.bufferStateByOffset[offset] = new
@@ -244,7 +244,7 @@ func (p *BufferPool) unsetState(offset uint32) {
 	}
 }
 
-func (p *BufferPool) getState(r RefHeader) (got bufferState) {
+func (p *BufferPool) getState(r RefHeader) (got BufferState) {
 	if !trackBufferState {
 		return
 	}
@@ -254,10 +254,11 @@ func (p *BufferPool) getState(r RefHeader) (got bufferState) {
 	return
 }
 
-func (p *BufferPool) ValidateRefs(refs []Ref, want bufferState, stride uint) {
+func (p *BufferPool) ValidateRefs(h *RefHeader, want BufferState, n, stride uint) {
 	if !trackBufferState {
 		return
 	}
+	refs := h.slice(n)
 	for i := uint(0); i < uint(len(refs)); i += stride {
 		r := refs[i].RefHeader
 		if got := p.getState(r); got != want {
@@ -266,7 +267,7 @@ func (p *BufferPool) ValidateRefs(refs []Ref, want bufferState, stride uint) {
 	}
 }
 
-func (p *BufferPool) validateSetState(r RefHeader, set bufferState) {
+func (p *BufferPool) validateSetState(r RefHeader, set BufferState) {
 	if !trackBufferState {
 		return
 	}
@@ -284,7 +285,7 @@ func (p *BufferPool) validateSetState(r RefHeader, set bufferState) {
 	}
 }
 
-func (p *BufferPool) validateSetStateRefs(r []Ref, set bufferState, stride uint) {
+func (p *BufferPool) validateSetStateRefs(r []Ref, set BufferState, stride uint) {
 	if !trackBufferState {
 		return
 	}
@@ -356,7 +357,7 @@ type BufferMain struct {
 	PoolByName map[string]*BufferPool
 	bufferPools
 
-	bufferStateByOffset map[uint32]bufferState
+	bufferStateByOffset map[uint32]BufferState
 }
 
 func (m *BufferMain) AddBufferPool(p *BufferPool) {
