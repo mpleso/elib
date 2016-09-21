@@ -84,7 +84,7 @@ func (n *Node) AddEvent(e event.Actor, dst EventHandler) {
 		le.dst = dst.GetNode()
 	}
 	// Never block when polling.
-	blocking := !n.polling
+	blocking := !n.is_polling()
 	n.loop.addEvent(le, blocking)
 }
 
@@ -97,7 +97,7 @@ func (n *Node) AddTimedEvent(e event.Actor, dst EventHandler, dt float64) {
 func (e *loopEvent) EventAction() {
 	if e.dst != nil {
 		e.dst.rxEvents <- e
-		e.dst.active = true
+		e.dst.set_active(true)
 	} else {
 		e.do()
 	}
@@ -165,21 +165,28 @@ func (l *Loop) doEventNoWait() (quit *quitEvent) {
 	return
 }
 
+func (l *Loop) duration(t cpu.Time) time.Duration {
+	return time.Duration(float64(int64(t-l.now)) * l.timeDurationPerCycle)
+}
+
 func (l *Loop) doEventWait() (quit *quitEvent) {
 	l.now = cpu.TimeNow()
 	dt := time.Duration(1<<63 - 1)
 	if t, ok := l.eventPool.NextTime(); ok {
-		dt = time.Duration(float64(t-l.now) * l.timeDurationPerCycle)
+		if dt = l.duration(t); dt <= 0 {
+			return
+		}
 	}
+	l.waitingForEvent = true
 	select {
 	case e := <-l.events:
 		var ok bool
-		if quit, ok = e.actor.(*quitEvent); ok {
-			return
+		if quit, ok = e.actor.(*quitEvent); !ok {
+			e.EventAction()
 		}
-		e.EventAction()
 	case <-time.After(dt):
 	}
+	l.waitingForEvent = false
 	return
 }
 
@@ -215,9 +222,9 @@ func (l *Loop) doEvents() (quitLoop bool) {
 func (l *eventLoop) Wait() {
 	for _, h := range l.handlers {
 		c := h.GetNode()
-		if c.active {
+		if c.is_active() {
 			<-c.toLoop
-			c.active = false
+			c.set_active(false)
 		}
 	}
 }
@@ -261,4 +268,9 @@ func (e *quitEvent) String() string { return quitEventTypeStrings[e.Type] }
 func (e *quitEvent) Error() string  { return e.String() }
 func (e *quitEvent) EventAction()   {}
 func (l *Loop) Quit()               { l.addEvent(l.getLoopEvent(ErrQuit), true) }
-func (l *Loop) Interrupt()          { l.addEvent(l.getLoopEvent(ErrInterrupt), false) }
+func (l *Loop) Interrupt() {
+	// Add an event to wakeup event sleep.
+	if l.waitingForEvent {
+		l.addEvent(l.getLoopEvent(ErrInterrupt), false)
+	}
+}

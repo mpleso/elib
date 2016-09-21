@@ -19,9 +19,7 @@ type Node struct {
 	loop                    *Loop
 	toLoop                  chan struct{}
 	fromLoop                chan struct{}
-	active                  bool
-	polling                 bool
-	suspended               bool
+	flags                   node_flags
 	activePollerIndex       uint
 	initOnce                sync.Once
 	initWg                  sync.WaitGroup
@@ -30,6 +28,41 @@ type Node struct {
 	nextIndexByNodeName     map[string]uint
 	inputStats, outputStats nodeStats
 	eventNode
+}
+
+type node_flags uint32
+
+const (
+	node_active node_flags = 1 << iota
+	node_suspended
+	node_resumed
+	node_polling
+)
+
+func (n *Node) is_active() bool    { return n.flags&node_active != 0 }
+func (n *Node) is_polling() bool   { return n.flags&node_polling != 0 }
+func (n *Node) is_suspended() bool { return n.flags&node_suspended != 0 }
+func (n *Node) is_resumed() bool   { return n.flags&node_resumed != 0 }
+
+func (n *Node) set_flag(f node_flags, v bool) {
+	for {
+		old := n.flags
+		new := old
+		if v {
+			new |= f
+		} else {
+			new &^= f
+		}
+		if n.flags.compare_and_swap(old, new) {
+			break
+		}
+	}
+}
+
+func (n *Node) set_active(v bool) { n.set_flag(node_active, v) }
+
+func (f *node_flags) compare_and_swap(old, new node_flags) (swapped bool) {
+	return atomic.CompareAndSwapUint32((*uint32)(f), uint32(old), uint32(new))
 }
 
 type nextNode struct {
@@ -86,13 +119,25 @@ func (n *Node) freeActivePoller(l *Loop) {
 }
 
 func (n *Node) Activate(enable bool) (was bool) {
-	was = n.active
-	if was != enable {
-		n.active = enable
-		// Interrupt event wait to poll active nodes.
-		if enable {
-			n.loop.Interrupt()
+	for {
+		old := n.flags
+		was = old&node_active != 0
+		if was == enable {
+			break
 		}
+		new := old
+		if enable {
+			new |= node_active
+		} else {
+			new &^= node_active
+		}
+		if n.flags.compare_and_swap(old, new) {
+			break
+		}
+	}
+	// Interrupt event wait to poll active nodes.
+	if enable {
+		n.loop.Interrupt()
 	}
 	return
 }
@@ -103,8 +148,7 @@ func (e *activateEvent) EventAction()   { e.n.Activate(true) }
 func (e *activateEvent) String() string { return fmt.Sprintf("activate %s", e.n.name) }
 
 func (n *Node) ActivateAfterTime(dt float64) {
-	if n.active {
-		n.active = false
+	if was := n.Activate(false); was {
 		n.activateEvent.n = n
 		le := n.loop.getLoopEvent(&n.activateEvent)
 		n.loop.addTimedEvent(le, dt)
@@ -138,6 +182,7 @@ type Loop struct {
 
 	wg sync.WaitGroup
 
+	waitingForEvent        bool
 	registrationsNeedStart bool
 	initialNodesRegistered bool
 	startTime              cpu.Time
@@ -159,21 +204,46 @@ func (l *Loop) startPollers() {
 	}
 }
 
-func (l *Loop) Suspend(in *In) {
+func (l *Loop) Suspend(in *In) (resumed bool) {
 	a := l.activePollerPool.entries[in.activeIndex]
 	p := a.pollerNode
-	p.pollerElog(poller_suspend, byte(a.index))
-	p.suspended = true
-	p.toLoop <- struct{}{}
-	<-p.fromLoop
+	// p.pollerElog(poller_suspend, byte(a.index))
+	for {
+		old := p.flags
+		if resumed = old&node_resumed != 0; resumed {
+			break
+		}
+		new := old
+		new &^= node_resumed
+		new |= node_suspended
+		if p.flags.compare_and_swap(old, new) {
+			break
+		}
+	}
+	if !resumed {
+		// Signal polling done to main loop.
+		p.toLoop <- struct{}{}
+		// Wait for continue (resume) signal from main loop.
+		<-p.fromLoop
+	}
+	p.set_flag(node_resumed|node_suspended, false)
+	return
 }
 
 func (l *Loop) Resume(in *In) {
 	a := l.activePollerPool.entries[in.activeIndex]
 	if p := a.pollerNode; p != nil {
-		p.active = true
-		p.suspended = false
 		p.pollerElog(poller_resume, byte(a.index))
+		for {
+			old := p.flags
+			new := old
+			new |= node_active
+			new |= node_resumed
+			new &^= node_suspended
+			if p.flags.compare_and_swap(old, new) {
+				break
+			}
+		}
 		l.Interrupt()
 	}
 }
@@ -208,14 +278,15 @@ func (l *Loop) startDataPoller(n inLooper) {
 func (l *Loop) doPollers() {
 	for _, p := range l.dataPollers {
 		n := p.GetNode()
-		if !n.active || n.suspended {
+		if !n.is_active() || n.is_suspended() {
 			continue
 		}
 		if n.activePollerIndex == ^uint(0) {
 			n.allocActivePoller(n.loop)
 		}
-		n.polling = true
+		n.flags |= node_polling
 		n.pollerElog(poller_start, byte(n.activePollerIndex))
+		// Start poller who will be blocked waiting on fromLoop.
 		n.fromLoop <- struct{}{}
 	}
 
@@ -226,16 +297,16 @@ func (l *Loop) doPollers() {
 			continue
 		}
 		n := l.activePollerPool.entries[i].pollerNode
-		if !n.polling {
+		if !n.is_polling() {
 			continue
 		}
 
 		<-n.toLoop
-		n.polling = false
+		n.flags &^= node_polling
 		n.pollerElog(poller_done, byte(n.activePollerIndex))
 
 		// If not active anymore we can free it now.
-		if !(n.active || n.suspended) {
+		if !(n.is_active() || n.is_suspended()) {
 			if !l.activePollerPool.IsFree(n.activePollerIndex) {
 				n.freeActivePoller(l)
 			}
