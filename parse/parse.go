@@ -48,6 +48,14 @@ func (in *Input) Add(args ...string) {
 	in.buf = []byte(s)
 }
 
+func (in *Input) AddBuffer(b []byte) {
+	if len(in.buf) == 0 {
+		in.buf = b
+	} else {
+		in.buf = append(in.buf, b...)
+	}
+}
+
 func (in *Input) Save() uint {
 	i := in.saves.Len()
 	in.saves.Validate(i)
@@ -57,6 +65,7 @@ func (in *Input) Save() uint {
 
 func (in *Input) String() (s string) {
 	s = strings.TrimSpace(string(in.buf[in.index:]))
+	s = strings.Replace(s, "\n", "\\n", -1)
 	const max = 32
 	if len(s) > max {
 		s = s[:max] + "..."
@@ -670,10 +679,11 @@ func (in *Input) doPercent(verb rune, args *Args) {
 }
 
 var (
-	ErrVerb  = errors.New("illegal verb after %")
-	ErrInt   = errors.New("expected integer")
-	ErrFloat = errors.New("expected float")
-	ErrInput = errors.New("invalid input")
+	ErrVerb            = errors.New("illegal verb after %")
+	ErrInt             = errors.New("expected integer")
+	ErrFloat           = errors.New("expected float")
+	ErrInput           = errors.New("invalid input")
+	ErrUnmatchedBraces = errors.New("unmatched braces")
 )
 
 func (in *Input) doBool(verb rune) (v bool) {
@@ -738,6 +748,7 @@ func (in *Input) parseString(delimiter rune) (s string) {
 	in.Save()
 	backslash := false
 	is_paren_delimited := false
+	is_line_delimited := delimiter == '\n'
 	paren := 0
 loop:
 	for !in.EndNoSkip() {
@@ -746,7 +757,7 @@ loop:
 		if backslash {
 			backslash = false
 		} else if isSpace(r) {
-			if !is_paren_delimited {
+			if !(is_paren_delimited || is_line_delimited) || (is_line_delimited && r == '\n') {
 				in.Unread(size)
 				break loop
 			}
@@ -756,8 +767,9 @@ loop:
 				backslash = true
 				add = false
 			case '{':
-				if paren == 0 && len(s) == 0 {
+				if paren == 0 && (len(s) == 0 || is_line_delimited) {
 					is_paren_delimited = true
+					is_line_delimited = false // no longer line delimited
 					add = false
 				}
 				paren++
@@ -782,7 +794,7 @@ loop:
 	ok := paren == 0
 	in.restore(ok)
 	if !ok {
-		panic(ErrInput)
+		panic(ErrUnmatchedBraces)
 	}
 	return
 }
@@ -793,6 +805,8 @@ func (in *Input) doString(verb rune) (s string) {
 		s = in.Token()
 	case 'v':
 		s = in.parseString(' ')
+	case 'l':
+		s = in.parseString('\n')
 	default:
 		panic(ErrVerb)
 	}
