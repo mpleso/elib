@@ -7,6 +7,8 @@ import (
 	"github.com/platinasystems/elib/iomux"
 
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 )
@@ -146,6 +148,46 @@ func (l *Loop) clearEventLog(c cli.Commander, w cli.Writer, in *cli.Input) (err 
 	return
 }
 
+func (l *Loop) exec(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
+	var files []*os.File
+	for !in.End() {
+		var (
+			pattern string
+			names   []string
+			f       *os.File
+		)
+		in.Parse("%s", &pattern)
+		if names, err = filepath.Glob(pattern); err != nil {
+			return
+		}
+		if len(names) == 0 {
+			err = fmt.Errorf("no files matching pattern: `%s'", pattern)
+			return
+		}
+		for _, name := range names {
+			if f, err = os.OpenFile(name, os.O_RDONLY, 0); err != nil {
+				return
+			}
+			files = append(files, f)
+		}
+	}
+	for _, f := range files {
+		var i [2]cli.Input
+		i[0].Init(f)
+		for !i[0].End() {
+			if !i[0].Parse("%l", &i[1].Input) {
+				err = i[0].Error()
+				return
+			}
+			if err = l.Cli.ExecInput(w, &i[1]); err != nil {
+				return
+			}
+		}
+		f.Close()
+	}
+	return
+}
+
 func (l *Loop) cliInit() {
 	l.RegisterEventPoller(iomux.Default)
 	c := &l.Cli
@@ -170,5 +212,10 @@ func (l *Loop) cliInit() {
 		Name:      "clear event-log",
 		ShortHelp: "clear events in event log",
 		Action:    l.clearEventLog,
+	})
+	c.AddCommand(&cli.Command{
+		Name:      "exec",
+		ShortHelp: "execute cli commands from given file(s)",
+		Action:    l.exec,
 	})
 }
