@@ -29,6 +29,9 @@ type Pool struct {
 	fibheap elib.FibHeap
 }
 
+func (p *Pool) Elts() uint                   { return p.pool.Elts() }
+func (p *Pool) Foreach(f func(e TimedActor)) { p.pool.Foreach(f) }
+
 func (p *Pool) Add(e TimedActor) (ei uint) {
 	ei = p.pool.GetIndex()
 	p.pool.events[ei] = e
