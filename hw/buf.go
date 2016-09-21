@@ -244,14 +244,53 @@ func (p *BufferPool) unsetState(offset uint32) {
 	}
 }
 
-func (r *RefHeader) ValidateState(m *BufferMain, want bufferState) (invalid bool) {
-	if trackBufferState {
-		m.Lock()
-		got := m.bufferStateByOffset[r.offset()]
-		m.Unlock()
-		invalid = got != want
+func (p *BufferPool) getState(r RefHeader) (got bufferState) {
+	if !trackBufferState {
+		return
 	}
+	p.m.Lock()
+	got = p.m.bufferStateByOffset[r.offset()]
+	p.m.Unlock()
 	return
+}
+
+func (p *BufferPool) ValidateRefs(refs []Ref, want bufferState, stride uint) {
+	if !trackBufferState {
+		return
+	}
+	for i := uint(0); i < uint(len(refs)); i += stride {
+		r := refs[i].RefHeader
+		if got := p.getState(r); got != want {
+			panic(fmt.Errorf("validate ref offset 0x%x: want %s != got %s", r.offset(), want, got))
+		}
+	}
+}
+
+func (p *BufferPool) validateSetState(r RefHeader, set bufferState) {
+	if !trackBufferState {
+		return
+	}
+	s := p.setState(r.offset(), set)
+	expect := BufferKnownAllocated
+	if set == BufferKnownAllocated {
+		// Accept either known free or unknown (for initial allocation).
+		expect = BufferKnownFree
+		if s == BufferUnknown {
+			expect = BufferUnknown
+		}
+	}
+	if s != expect {
+		panic(fmt.Errorf("validate buffer offset 0x%x: want %s != got %s", r.offset(), expect, s))
+	}
+}
+
+func (p *BufferPool) validateSetStateRefs(r []Ref, set bufferState, stride uint) {
+	if !trackBufferState {
+		return
+	}
+	for i := uint(0); i < uint(len(r)); i += stride {
+		p.validateSetState(r[i].RefHeader, set)
+	}
 }
 
 // Method to over-ride to initialize refs for this buffer pool.
@@ -418,14 +457,14 @@ func (p *BufferPool) AllocRefsStride(r *RefHeader, want, stride uint) {
 	copyRefs(refs, p.refs[got-want:got], stride)
 
 	p.refs = p.refs[:got-want]
-	p.validateRefs(refs, BufferKnownAllocated, stride)
+	p.validateSetStateRefs(refs, BufferKnownAllocated, stride)
 }
 
 func (p *BufferPool) AllocCachedRefs() (r RefVec) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	r, p.refs = p.refs, nil
-	p.validateRefs(r, BufferKnownAllocated, 1)
+	p.validateSetStateRefs(r, BufferKnownAllocated, 1)
 	return
 }
 
@@ -455,39 +494,12 @@ type freeNext struct {
 	refs  RefVec
 }
 
-func (p *BufferPool) validateRef(r RefHeader, set bufferState) {
-	if !trackBufferState {
-		return
-	}
-	s := p.setState(r.offset(), set)
-	expect := BufferKnownAllocated
-	if set == BufferKnownAllocated {
-		// Accept either known free or unknown (for initial allocation).
-		expect = BufferKnownFree
-		if s == BufferUnknown {
-			expect = BufferUnknown
-		}
-	}
-	if s != expect {
-		panic(fmt.Errorf("validate buffer offset 0x%x: want %s != got %s", r.offset(), expect, s))
-	}
-}
-
-func (p *BufferPool) validateRefs(r []Ref, set bufferState, stride uint) {
-	if !trackBufferState {
-		return
-	}
-	for i := uint(0); i < uint(len(r)); i += stride {
-		p.validateRef(r[i].RefHeader, set)
-	}
-}
-
 func (f *freeNext) add(p *BufferPool, r *Ref, nextRef RefHeader) {
 	if !r.NextIsValid() {
 		return
 	}
 	for {
-		p.validateRef(nextRef, BufferKnownFree)
+		p.validateSetState(nextRef, BufferKnownFree)
 		f.refs.Validate(f.count)
 		f.refs[f.count].RefHeader = nextRef
 		f.count++
@@ -586,7 +598,7 @@ func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
 
-	p.validateRefs(toFree, BufferKnownFree, 1)
+	p.validateSetStateRefs(toFree, BufferKnownFree, 1)
 
 	initialLen := p.FreeLen()
 	p.refs.Resize(n)
