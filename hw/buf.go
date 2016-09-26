@@ -665,6 +665,10 @@ func (h *RefHeader) Validate() {
 			err = fmt.Errorf("bad dma offset: %x", r.dataOffset)
 			return
 		}
+		if r.DataLen() == 0 {
+			err = fmt.Errorf("zero length")
+			return
+		}
 		if r = r.NextRef(); r == nil {
 			break
 		}
