@@ -177,14 +177,25 @@ func (l *Loop) doEventWait() (quit *quitEvent) {
 			return
 		}
 	}
+	if elog.Enabled() {
+		elog.GenEvent("waiting for event")
+	}
 	l.waitingForEvent = true
 	select {
 	case e := <-l.events:
 		var ok bool
-		if quit, ok = e.actor.(*quitEvent); !ok {
+		if quit, ok = e.actor.(*quitEvent); ok {
+			// Log quit event.
+			if elog.Enabled() {
+				elog.GenEvent("wakeup " + e.String())
+			}
+		} else {
 			e.EventAction()
 		}
 	case <-time.After(dt):
+		if elog.Enabled() {
+			elog.GenEvent("wakeup timeout")
+		}
 	}
 	l.waitingForEvent = false
 	return

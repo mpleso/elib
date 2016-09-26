@@ -136,8 +136,10 @@ func (n *Node) Activate(enable bool) (was bool) {
 		}
 	}
 	// Interrupt event wait to poll active nodes.
-	if enable {
-		n.loop.Interrupt()
+	if !was && enable {
+		l := n.loop
+		atomic.AddUint32(&l.nActivePollers, 1)
+		l.Interrupt()
 	}
 	return
 }
@@ -177,7 +179,7 @@ type Loop struct {
 
 	dataPollers      []inLooper
 	activePollerPool activePollerPool
-	nActivePollers   uint
+	nActivePollers   uint32
 	pollerStats      pollerStats
 
 	wg sync.WaitGroup
@@ -291,7 +293,7 @@ func (l *Loop) doPollers() {
 	}
 
 	// Wait for pollers to finish.
-	nActive := uint(0)
+	nFreed := uint(0)
 	for i := uint(0); i < l.activePollerPool.Len(); i++ {
 		if l.activePollerPool.IsFree(i) {
 			continue
@@ -307,20 +309,19 @@ func (l *Loop) doPollers() {
 
 		// If not active anymore we can free it now.
 		if !(n.is_active() || n.is_suspended()) {
+			nFreed++
 			if !l.activePollerPool.IsFree(n.activePollerIndex) {
 				n.freeActivePoller(l)
 			}
-		} else {
-			nActive++
 		}
 	}
 
-	if nActive == 0 && l.nActivePollers > 0 {
+	atomic.AddUint32(&l.nActivePollers, -uint32(nFreed))
+	if l.nActivePollers == 0 && nFreed > 0 {
 		l.resetPollerStats()
 	} else {
 		l.doPollerStats()
 	}
-	l.nActivePollers = nActive
 }
 
 func (l *Loop) timerInit() {
