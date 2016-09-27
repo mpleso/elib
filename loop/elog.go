@@ -14,13 +14,17 @@ const (
 	poller_done
 	poller_suspend
 	poller_resume
+	poller_resumed
+	poller_activate
 )
 
 var poller_elog_event_type_names = [...]string{
-	poller_start:   "start",
-	poller_done:    "done",
-	poller_suspend: "suspend",
-	poller_resume:  "resume",
+	poller_start:    "start",
+	poller_done:     "done",
+	poller_suspend:  "suspend",
+	poller_resume:   "resume",
+	poller_resumed:  "resumed",
+	poller_activate: "activate",
 }
 
 func (t poller_elog_event_type) String() string {
@@ -30,34 +34,47 @@ func (t poller_elog_event_type) String() string {
 type pollerElogEvent struct {
 	poller_index byte
 	event_type   poller_elog_event_type
+	flags        byte
 	name         [elog.EventDataBytes - 2]byte
 }
 
-func (n *Node) pollerElog(t poller_elog_event_type, poller_index byte) {
+func (n *Node) pollerElog(t poller_elog_event_type, f node_flags) {
 	if elog.Enabled() {
 		le := pollerElogEvent{
 			event_type:   t,
-			poller_index: poller_index,
+			poller_index: byte(n.activePollerIndex),
+			flags:        byte(f),
 		}
 		copy(le.name[:], n.name)
 		le.Log()
 	}
 }
 
-func (e *pollerElogEvent) String() string {
-	return fmt.Sprintf("poller %s %d %s ", e.event_type, e.poller_index, elog.String(e.name[:]))
+func (e *pollerElogEvent) String() (s string) {
+	s = "poller"
+	if e.poller_index != 0xff {
+		s += fmt.Sprintf(" %d:", e.poller_index)
+	}
+	s += fmt.Sprintf(" %s %s", elog.String(e.name[:]), e.event_type)
+	if e.flags != 0 {
+		s += fmt.Sprintf(", flags: %s", node_flags(e.flags))
+	}
+	return
 }
 func (e *pollerElogEvent) Encode(b []byte) int {
 	b = elog.PutUvarint(b, int(e.poller_index))
 	b = elog.PutUvarint(b, int(e.event_type))
+	b = elog.PutUvarint(b, int(e.flags))
 	return copy(b, e.name[:])
 }
 func (e *pollerElogEvent) Decode(b []byte) int {
-	var i [2]int
+	var i [3]int
 	b, i[0] = elog.Uvarint(b)
 	b, i[1] = elog.Uvarint(b)
+	b, i[2] = elog.Uvarint(b)
 	e.poller_index = byte(i[0])
 	e.event_type = poller_elog_event_type(i[1])
+	e.flags = byte(i[2])
 	return copy(e.name[:], b)
 }
 

@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"github.com/platinasystems/elib"
 	"github.com/platinasystems/elib/cpu"
 	"github.com/platinasystems/elib/dep"
 	"github.com/platinasystems/elib/elog"
@@ -33,21 +34,30 @@ type Node struct {
 type node_flags uint32
 
 const (
-	node_active node_flags = 1 << iota
-	node_suspended
-	node_resumed
-	node_polling
+	log2_node_active, node_active node_flags = iota, 1 << iota
+	log2_node_suspended, node_suspended
+	log2_node_resumed, node_resumed
+	log2_node_polling, node_polling
 )
+
+var node_flag_strings = [...]string{
+	log2_node_active:    "active",
+	log2_node_suspended: "suspended",
+	log2_node_resumed:   "resumed",
+	log2_node_polling:   "polling",
+}
+
+func (x node_flags) String() string { return elib.FlagStringer(node_flag_strings[:], elib.Word(x)) }
 
 func (n *Node) is_active() bool    { return n.flags&node_active != 0 }
 func (n *Node) is_polling() bool   { return n.flags&node_polling != 0 }
 func (n *Node) is_suspended() bool { return n.flags&node_suspended != 0 }
 func (n *Node) is_resumed() bool   { return n.flags&node_resumed != 0 }
 
-func (n *Node) set_flag(f node_flags, v bool) {
+func (n *Node) set_flag(f node_flags, v bool) (new node_flags) {
 	for {
 		old := n.flags
-		new := old
+		new = old
 		if v {
 			new |= f
 		} else {
@@ -57,6 +67,7 @@ func (n *Node) set_flag(f node_flags, v bool) {
 			break
 		}
 	}
+	return
 }
 
 func (n *Node) set_active(v bool) { n.set_flag(node_active, v) }
@@ -132,6 +143,7 @@ func (n *Node) Activate(enable bool) (was bool) {
 			new &^= node_active
 		}
 		if n.flags.compare_and_swap(old, new) {
+			n.pollerElog(poller_activate, new)
 			break
 		}
 	}
@@ -209,16 +221,17 @@ func (l *Loop) startPollers() {
 func (l *Loop) Suspend(in *In) (resumed bool) {
 	a := l.activePollerPool.entries[in.activeIndex]
 	p := a.pollerNode
-	// p.pollerElog(poller_suspend, byte(a.index))
 	for {
 		old := p.flags
 		if resumed = old&node_resumed != 0; resumed {
+			p.pollerElog(poller_suspend, old)
 			break
 		}
 		new := old
 		new &^= node_resumed
 		new |= node_suspended
 		if p.flags.compare_and_swap(old, new) {
+			p.pollerElog(poller_suspend, new)
 			break
 		}
 	}
@@ -228,14 +241,14 @@ func (l *Loop) Suspend(in *In) (resumed bool) {
 		// Wait for continue (resume) signal from main loop.
 		<-p.fromLoop
 	}
-	p.set_flag(node_resumed|node_suspended, false)
+	new := p.set_flag(node_resumed|node_suspended, false)
+	p.pollerElog(poller_resumed, new)
 	return
 }
 
 func (l *Loop) Resume(in *In) {
 	a := l.activePollerPool.entries[in.activeIndex]
 	if p := a.pollerNode; p != nil {
-		p.pollerElog(poller_resume, byte(a.index))
 		for {
 			old := p.flags
 			new := old
@@ -243,6 +256,7 @@ func (l *Loop) Resume(in *In) {
 			new |= node_resumed
 			new &^= node_suspended
 			if p.flags.compare_and_swap(old, new) {
+				p.pollerElog(poller_resume, new)
 				break
 			}
 		}
@@ -287,7 +301,7 @@ func (l *Loop) doPollers() {
 			n.allocActivePoller(n.loop)
 		}
 		n.flags |= node_polling
-		n.pollerElog(poller_start, byte(n.activePollerIndex))
+		n.pollerElog(poller_start, n.flags)
 		// Start poller who will be blocked waiting on fromLoop.
 		n.fromLoop <- struct{}{}
 	}
@@ -305,7 +319,7 @@ func (l *Loop) doPollers() {
 
 		<-n.toLoop
 		n.flags &^= node_polling
-		n.pollerElog(poller_done, byte(n.activePollerIndex))
+		n.pollerElog(poller_done, n.flags)
 
 		// If not active anymore we can free it now.
 		if !(n.is_active() || n.is_suspended()) {
