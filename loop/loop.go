@@ -300,7 +300,7 @@ func (l *Loop) doPollers() {
 		if n.activePollerIndex == ^uint(0) {
 			n.allocActivePoller(n.loop)
 		}
-		n.flags |= node_polling
+		n.set_flag(node_polling, true)
 		n.pollerElog(poller_start, n.flags)
 		// Start poller who will be blocked waiting on fromLoop.
 		n.fromLoop <- struct{}{}
@@ -318,11 +318,12 @@ func (l *Loop) doPollers() {
 		}
 
 		<-n.toLoop
-		n.flags &^= node_polling
+		n.set_flag(node_polling, false)
 		n.pollerElog(poller_done, n.flags)
 
 		// If not active anymore we can free it now.
-		if !(n.is_active() || n.is_suspended()) {
+		// TODO: smp races.  Disabled for now.
+		if false && !(n.is_active() || n.is_suspended()) {
 			nFreed++
 			if !l.activePollerPool.IsFree(n.activePollerIndex) {
 				n.freeActivePoller(l)
