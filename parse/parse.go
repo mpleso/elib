@@ -130,6 +130,8 @@ func (in *Input) end(skipSpace bool) (end bool) {
 func (in *Input) EndNoSkip() (end bool) { return in.end(false) }
 func (in *Input) End() (end bool)       { return in.end(true) }
 
+func (in *Input) Skip() { in.index = len(in.buf) }
+
 func (in *Input) doRead(n int, must bool) (r []byte, ok bool) {
 	for in.index+n > len(in.buf) {
 		if in.sawEnd {

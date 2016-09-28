@@ -188,6 +188,11 @@ func (l *Loop) exec(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
 	return
 }
 
+func (l *Loop) comment(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
+	in.Skip()
+	return
+}
+
 func (l *Loop) cliInit() {
 	l.RegisterEventPoller(iomux.Default)
 	c := &l.Cli
@@ -217,5 +222,10 @@ func (l *Loop) cliInit() {
 		Name:      "exec",
 		ShortHelp: "execute cli commands from given file(s)",
 		Action:    l.exec,
+	})
+	c.AddCommand(&cli.Command{
+		Name:      "//",
+		ShortHelp: "comment",
+		Action:    l.comment,
 	})
 }

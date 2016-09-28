@@ -94,3 +94,16 @@ func (r *Regexp) Parse(in *Input) {
 		panic(err)
 	}
 }
+
+type Comment struct{}
+
+func (x *Comment) Parse(in *Input) {
+	if in.Parse("//") {
+		for !in.EndNoSkip() {
+			if x, _ := in.ReadRune(); x == '\n' {
+				return
+			}
+		}
+	}
+	panic(ErrInput)
+}
