@@ -595,6 +595,10 @@ func (p *BufferPool) freeRefsNoNext(dst, src []Ref, n uint, tmp *BufferTemplate)
 // Return all buffers to pool and reset for next usage.
 // freeNext specifies whether or not to follow and free next pointers.
 func (p *BufferPool) FreeRefs(rh *RefHeader, n uint, freeNext bool) {
+	if n == 0 {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	toFree := rh.slice(n)
