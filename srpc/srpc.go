@@ -10,8 +10,8 @@ import (
 	"net/rpc"
 	"sync"
 
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/elog"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/elog"
 )
 
 type input struct {
@@ -251,7 +251,7 @@ type event struct {
 	s     [elog.EventDataBytes - 1]byte
 }
 
-//go:generate gentemplate -d Package=srpc -id event -d Type=event github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=srpc -id event -d Type=event github.com/platinasystems/go/elib/elog/event.tmpl
 
 type eventFlag uint8
 
@@ -327,7 +327,7 @@ type inputEvent struct {
 	s     [elog.EventDataBytes - 1]byte
 }
 
-//go:generate gentemplate -d Package=srpc -id inputEvent -d Type=inputEvent github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=srpc -id inputEvent -d Type=inputEvent github.com/platinasystems/go/elib/elog/event.tmpl
 
 func (e *inputEvent) String() string {
 	b, tagIndex := elog.Uvarint(e.s[:])

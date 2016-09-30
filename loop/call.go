@@ -1,8 +1,8 @@
 package loop
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/cpu"
 
 	"fmt"
 	"reflect"
@@ -59,7 +59,7 @@ type activeNode struct {
 	inputStats, outputStats nodeStats
 }
 
-//go:generate gentemplate -d Package=loop -id looperIn -d VecType=looperInVec -d Type=LooperIn github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=loop -id looperIn -d VecType=looperInVec -d Type=LooperIn github.com/platinasystems/go/elib/vec.tmpl
 
 type activePoller struct {
 	index       uint16
@@ -72,7 +72,7 @@ type activePoller struct {
 	pollerStats nodeStats
 }
 
-//go:generate gentemplate -d Package=loop -id activePoller -d PoolType=activePollerPool -d Type=*activePoller -d Data=entries github.com/platinasystems/elib/pool.tmpl
+//go:generate gentemplate -d Package=loop -id activePoller -d PoolType=activePollerPool -d Type=*activePoller -d Data=entries github.com/platinasystems/go/elib/pool.tmpl
 
 var looperInType = reflect.TypeOf((*LooperIn)(nil)).Elem()
 
@@ -313,7 +313,7 @@ const MaxVectorLen = 256
 // Vector index.
 type Vi uint8
 
-//go:generate gentemplate -d Package=loop -id Vi -d VecType=viVec -d Type=Vi github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=loop -id Vi -d VecType=viVec -d Type=Vi github.com/platinasystems/go/elib/vec.tmpl
 
 type pending struct {
 	in            *In

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/platinasystems/elib/elog"
+	"github.com/platinasystems/go/elib/elog"
 
 	"bytes"
 	"fmt"
@@ -18,7 +18,7 @@ func (e *event) String() string          { return fmt.Sprintf("event #%d", e.i) 
 func (e *event) Encode(b []byte) int     { return elog.EncodeUint32(b, e.i) }
 func (e *event) Decode(b []byte) (i int) { e.i, i = elog.DecodeUint32(b, i); return }
 
-//go:generate gentemplate -d Package=main -id event -d Type=event github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=main -id event -d Type=event github.com/platinasystems/go/elib/elog/event.tmpl
 
 func main() {
 	elog.Enable(true)

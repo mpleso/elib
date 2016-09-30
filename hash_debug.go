@@ -3,7 +3,7 @@
 package elib
 
 import (
-	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/go/elib/cpu"
 
 	"flag"
 	"fmt"

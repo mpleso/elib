@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/platinasystems/elib/mctree"
-	"github.com/platinasystems/elib/parse"
+	"github.com/platinasystems/go/elib/mctree"
+	"github.com/platinasystems/go/elib/parse"
 	"github.com/platinasystems/vnet"
 	"github.com/platinasystems/vnet/ip4"
 

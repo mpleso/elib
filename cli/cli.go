@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/platinasystems/elib/iomux"
-	"github.com/platinasystems/elib/parse"
+	"github.com/platinasystems/go/elib/iomux"
+	"github.com/platinasystems/go/elib/parse"
 
 	"errors"
 	"fmt"
@@ -70,7 +70,7 @@ type File struct {
 
 type fileIndex uint
 
-//go:generate gentemplate -d Package=cli -id file -d Data=Files -d PoolType=FilePool -d Type=File github.com/platinasystems/elib/pool.tmpl
+//go:generate gentemplate -d Package=cli -id file -d Data=Files -d PoolType=FilePool -d Type=File github.com/platinasystems/go/elib/pool.tmpl
 
 type Main struct {
 	in Input

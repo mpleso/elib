@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/platinasystems/elib"
+	"github.com/platinasystems/go/elib"
 
 	"fmt"
 )

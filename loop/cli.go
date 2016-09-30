@@ -1,10 +1,10 @@
 package loop
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cli"
-	"github.com/platinasystems/elib/elog"
-	"github.com/platinasystems/elib/iomux"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/cli"
+	"github.com/platinasystems/go/elib/elog"
+	"github.com/platinasystems/go/elib/iomux"
 
 	"fmt"
 	"os"

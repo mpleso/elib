@@ -1,7 +1,7 @@
 package dep
 
 import (
-	"github.com/platinasystems/elib"
+	"github.com/platinasystems/go/elib"
 	"sort"
 )
 

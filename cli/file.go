@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/platinasystems/elib/iomux"
+	"github.com/platinasystems/go/elib/iomux"
 
 	"fmt"
 	"strings"

@@ -1,7 +1,7 @@
 package mctree
 
 import (
-	"github.com/platinasystems/elib"
+	"github.com/platinasystems/go/elib"
 
 	"encoding/gob"
 	"os"

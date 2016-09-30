@@ -1,9 +1,9 @@
 package socket
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/elog"
-	"github.com/platinasystems/elib/iomux"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/elog"
+	"github.com/platinasystems/go/elib/iomux"
 
 	"fmt"
 	"sync"
@@ -376,7 +376,7 @@ type event struct {
 	s     [elog.EventDataBytes - 1]byte
 }
 
-//go:generate gentemplate -d Package=socket -id event -d Type=event github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=socket -id event -d Type=event github.com/platinasystems/go/elib/elog/event.tmpl
 
 type eventFlag uint8
 

@@ -32,7 +32,7 @@ type Filer interface {
 	String() string
 }
 
-//go:generate gentemplate -d Package=iomux -id file -d Data=files -d PoolType=filePool -d Type=Filer github.com/platinasystems/elib/pool.tmpl
+//go:generate gentemplate -d Package=iomux -id file -d Data=files -d PoolType=filePool -d Type=Filer github.com/platinasystems/go/elib/pool.tmpl
 
 var Default = &Mux{}
 

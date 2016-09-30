@@ -1,7 +1,7 @@
 package iomux
 
 import (
-	"github.com/platinasystems/elib"
+	"github.com/platinasystems/go/elib"
 
 	"fmt"
 	"io"

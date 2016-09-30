@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/platinasystems/elib/cli"
-	"github.com/platinasystems/elib/loop"
+	"github.com/platinasystems/go/elib/cli"
+	"github.com/platinasystems/go/elib/loop"
 	"github.com/platinasystems/vnet"
 	"github.com/platinasystems/vnet/arp"
 	"github.com/platinasystems/vnet/ethernet"

@@ -3,7 +3,7 @@
 package hw
 
 import (
-	"github.com/platinasystems/elib"
+	"github.com/platinasystems/go/elib"
 )
 
 type pageTable struct {

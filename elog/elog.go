@@ -2,7 +2,7 @@
 package elog
 
 import (
-	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/go/elib/cpu"
 
 	"bytes"
 	"errors"
@@ -384,7 +384,7 @@ type View struct {
 	shared
 }
 
-//go:generate gentemplate -d Package=elog -id Event -d VecType=EventVec -d Type=Event github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=elog -id Event -d VecType=EventVec -d Type=Event github.com/platinasystems/go/elib/vec.tmpl
 
 func (b *Buffer) NewView() (v *View) {
 	v = &View{}
@@ -470,4 +470,4 @@ func GenEventf(format string, args ...interface{}) {
 	e.Log()
 }
 
-//go:generate gentemplate -d Package=elog -id genEvent -d Type=genEvent github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=elog -id genEvent -d Type=genEvent github.com/platinasystems/go/elib/elog/event.tmpl

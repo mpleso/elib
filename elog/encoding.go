@@ -1,8 +1,8 @@
 package elog
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/cpu"
 
 	"encoding/binary"
 	"encoding/gob"

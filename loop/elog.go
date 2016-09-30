@@ -1,8 +1,8 @@
 package loop
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/elog"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/elog"
 
 	"fmt"
 )
@@ -78,7 +78,7 @@ func (e *pollerElogEvent) Decode(b []byte) int {
 	return copy(e.name[:], b)
 }
 
-//go:generate gentemplate -d Package=loop -id pollerElogEvent -d Type=pollerElogEvent github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=loop -id pollerElogEvent -d Type=pollerElogEvent github.com/platinasystems/go/elib/elog/event.tmpl
 
 type eventElogEvent struct {
 	s [elog.EventDataBytes]byte
@@ -90,4 +90,4 @@ func (e *eventElogEvent) String() string {
 func (e *eventElogEvent) Encode(b []byte) int { return copy(b, e.s[:]) }
 func (e *eventElogEvent) Decode(b []byte) int { return copy(e.s[:], b) }
 
-//go:generate gentemplate -d Package=loop -id eventElogEvent -d Type=eventElogEvent github.com/platinasystems/elib/elog/event.tmpl
+//go:generate gentemplate -d Package=loop -id eventElogEvent -d Type=eventElogEvent github.com/platinasystems/go/elib/elog/event.tmpl

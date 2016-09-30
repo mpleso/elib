@@ -3,9 +3,9 @@
 package pci
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/hw"
-	"github.com/platinasystems/elib/iomux"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/hw"
+	"github.com/platinasystems/go/elib/iomux"
 
 	"errors"
 	"fmt"

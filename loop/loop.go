@@ -1,10 +1,10 @@
 package loop
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cpu"
-	"github.com/platinasystems/elib/dep"
-	"github.com/platinasystems/elib/elog"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/cpu"
+	"github.com/platinasystems/go/elib/dep"
+	"github.com/platinasystems/go/elib/elog"
 
 	"fmt"
 	"os"
@@ -82,7 +82,7 @@ type nextNode struct {
 	in        LooperIn
 }
 
-//go:generate gentemplate -d Package=loop -id nextNode -d VecType=nextNodeVec -d Type=nextNode github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=loop -id nextNode -d VecType=nextNodeVec -d Type=nextNode github.com/platinasystems/go/elib/vec.tmpl
 
 func (n *Node) GetNode() *Node { return n }
 func (n *Node) Index() uint    { return n.index }
@@ -351,7 +351,7 @@ func (l *Loop) TimeDiff(t0, t1 cpu.Time) float64 { return float64(t1-t0) * l.sec
 
 type initHook func(l *Loop)
 
-//go:generate gentemplate -id initHook -d Package=loop -d DepsType=initHookVec -d Type=initHook -d Data=hooks github.com/platinasystems/elib/dep/dep.tmpl
+//go:generate gentemplate -id initHook -d Package=loop -d DepsType=initHookVec -d Type=initHook -d Data=hooks github.com/platinasystems/go/elib/dep/dep.tmpl
 
 var initHooks, exitHooks initHookVec
 

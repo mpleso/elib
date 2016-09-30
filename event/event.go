@@ -1,8 +1,8 @@
 package event
 
 import (
-	"github.com/platinasystems/elib"
-	"github.com/platinasystems/elib/cpu"
+	"github.com/platinasystems/go/elib"
+	"github.com/platinasystems/go/elib/cpu"
 )
 
 type Actor interface {
@@ -15,14 +15,14 @@ type TimedActor interface {
 	EventTime() cpu.Time
 }
 
-//go:generate gentemplate -d Package=event -id actor  -d VecType=ActorVec -d Type=Actor github.com/platinasystems/elib/vec.tmpl
+//go:generate gentemplate -d Package=event -id actor  -d VecType=ActorVec -d Type=Actor github.com/platinasystems/go/elib/vec.tmpl
 
 func (p *timedEventPool) Compare(i, j int) int {
 	ei, ej := p.events[i], p.events[j]
 	return int(ei.EventTime() - ej.EventTime())
 }
 
-//go:generate gentemplate -d Package=event -id timedEvent -d PoolType=timedEventPool -d Type=TimedActor -d Data=events github.com/platinasystems/elib/pool.tmpl
+//go:generate gentemplate -d Package=event -id timedEvent -d PoolType=timedEventPool -d Type=TimedActor -d Data=events github.com/platinasystems/go/elib/pool.tmpl
 
 type Pool struct {
 	pool    timedEventPool

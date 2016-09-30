@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/platinasystems/elib/iomux"
-	"github.com/platinasystems/elib/socket"
+	"github.com/platinasystems/go/elib/iomux"
+	"github.com/platinasystems/go/elib/socket"
 
 	"fmt"
 	"sync"
@@ -43,7 +43,7 @@ type client struct {
 	index uint
 }
 
-//go:generate gentemplate -d Package=cli -id client -d Data=clients -d PoolType=clientPool -d Type=client github.com/platinasystems/elib/pool.tmpl
+//go:generate gentemplate -d Package=cli -id client -d Data=clients -d PoolType=clientPool -d Type=client github.com/platinasystems/go/elib/pool.tmpl
 
 func (s *Server) newClient(template *client, socketConfig string) (i uint, err error) {
 	s.lock.Lock()
