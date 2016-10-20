@@ -169,6 +169,7 @@ func Tabulate(x interface{}) (tab *table) {
 		tab.cols[c].maxLen += 2
 	}
 
+	stringer := reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
 	for r := 0; r < vLen; r++ {
 		f := v
 		if isArray {
@@ -177,9 +178,12 @@ func Tabulate(x interface{}) (tab *table) {
 		for c := range tab.cols {
 			fc := f.Field(c)
 			var v string
-			if tab.cols[c].format != "" {
+			switch {
+			case tab.cols[c].format != "":
 				v = fmt.Sprintf(tab.cols[c].format, fc)
-			} else {
+			case fc.Type().Implements(stringer):
+				v = fc.Interface().(fmt.Stringer).String()
+			default:
 				v = fmt.Sprintf("%v", fc)
 			}
 			tab.rows[r].cols = append(tab.rows[r].cols, v)
