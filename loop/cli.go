@@ -179,6 +179,7 @@ func (l *Loop) exec(c cli.Commander, w cli.Writer, in *cli.Input) (err error) {
 		var i [2]cli.Input
 		i[0].Init(f)
 		for !i[0].End() {
+			i[1].Init(nil)
 			if !i[0].Parse("%l", &i[1].Input) {
 				err = i[0].Error()
 				return
