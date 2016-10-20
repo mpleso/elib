@@ -177,12 +177,15 @@ func Tabulate(x interface{}) (tab *table) {
 		}
 		for c := range tab.cols {
 			fc := f.Field(c)
+			ft := fc.Type()
 			var v string
 			switch {
 			case tab.cols[c].format != "":
 				v = fmt.Sprintf(tab.cols[c].format, fc)
-			case fc.Type().Implements(stringer):
+			case ft.Implements(stringer):
 				v = fc.Interface().(fmt.Stringer).String()
+			case reflect.PtrTo(ft).Implements(stringer):
+				v = fc.Addr().Interface().(fmt.Stringer).String()
 			default:
 				v = fmt.Sprintf("%v", fc)
 			}
