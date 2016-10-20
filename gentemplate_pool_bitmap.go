@@ -74,3 +74,11 @@ func (p *BitmapPool) Foreach(f func(x BitmapVec)) {
 		}
 	}
 }
+
+func (p *BitmapPool) ForeachIndex(f func(i uint)) {
+	for i := range p.bitmaps {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

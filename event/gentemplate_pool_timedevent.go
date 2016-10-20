@@ -78,3 +78,11 @@ func (p *timedEventPool) Foreach(f func(x TimedActor)) {
 		}
 	}
 }
+
+func (p *timedEventPool) ForeachIndex(f func(i uint)) {
+	for i := range p.events {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

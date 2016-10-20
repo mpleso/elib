@@ -78,3 +78,11 @@ func (p *filePool) Foreach(f func(x Filer)) {
 		}
 	}
 }
+
+func (p *filePool) ForeachIndex(f func(i uint)) {
+	for i := range p.files {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

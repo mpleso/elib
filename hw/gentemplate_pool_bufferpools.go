@@ -78,3 +78,11 @@ func (p *bufferPools) Foreach(f func(x *BufferPool)) {
 		}
 	}
 }
+
+func (p *bufferPools) ForeachIndex(f func(i uint)) {
+	for i := range p.elts {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

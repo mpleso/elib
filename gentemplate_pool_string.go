@@ -74,3 +74,11 @@ func (p *StringPool) Foreach(f func(x string)) {
 		}
 	}
 }
+
+func (p *StringPool) ForeachIndex(f func(i uint)) {
+	for i := range p.Strings {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

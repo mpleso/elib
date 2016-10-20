@@ -78,3 +78,11 @@ func (p *node_pool) Foreach(f func(x node)) {
 		}
 	}
 }
+
+func (p *node_pool) ForeachIndex(f func(i uint)) {
+	for i := range p.nodes {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

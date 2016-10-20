@@ -78,3 +78,11 @@ func (p *shared_pair_offsets_pool) Foreach(f func(x shared_pair_offsets)) {
 		}
 	}
 }
+
+func (p *shared_pair_offsets_pool) ForeachIndex(f func(i uint)) {
+	for i := range p.elts {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}

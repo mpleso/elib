@@ -78,3 +78,11 @@ func (p *activePollerPool) Foreach(f func(x *activePoller)) {
 		}
 	}
 }
+
+func (p *activePollerPool) ForeachIndex(f func(i uint)) {
+	for i := range p.entries {
+		if !p.Pool.IsFree(uint(i)) {
+			f(uint(i))
+		}
+	}
+}
